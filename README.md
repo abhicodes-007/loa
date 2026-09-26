@@ -16,7 +16,7 @@
 
 ## Summary
 
-Loa is a local-first, stateful coding agent built in Go for deep codebase navigation, structural analysis, and verified logic manipulation. Unlike API-driven thin clients or standard chat-bots, Loa is designed around a continuous cognitive state-machine (Planner -> Executor -> Reflection) that deliberately trades execution time and raw inference count for higher reasoning and execution quality. It persists state locally per project and optionally executes within an isolated Docker sandbox for system safety.
+Loa is a local-first, stateful coding agent explicitly designed for project-wide architecture and high-level development tasks. To achieve deeper, more reliable reasoning than standard coding models, Loa operates on a strict, continuous cognitive state-machine (Planner -> Executor -> Reflection). It deliberately trades execution time and raw inference count for higher execution quality and verified logic manipulation. It persists state locally per project and optionally executes within an isolated Docker sandbox for system safety.
 
 > [!IMPORTANT]  
 > **Cost Warning:** Loa uses a **massive** amount of inferences continuously while crawling and executing. We strongly discourage using cloud-based API providers (like OpenAI or Anthropic) as it will generate massive costs. Loa is strictly designed for **self-hosted, local environments** where there is no per-token cost.
@@ -25,9 +25,9 @@ Loa is a local-first, stateful coding agent built in Go for deep codebase naviga
 
 In the current landscape of AI coding tools, most fall into two categories: simple IDE autocomplete plugins, or cloud-hosted black-box agents. Loa sits in a unique position:
 
-1. **Strict State-Machine Architecture:** Most agents rely on unstructured, open-ended loops that frequently hallucinate, get stuck in infinite retry loops, or quietly fail. Loa strictly enforces a Directed Acyclic Graph (DAG) state-machine. It must formulate a plan, execute a step, verify the result, and self-correct explicitly. 
-2. **Offline & Private:** Loa does not rely on cloud vector databases. Project Memory and working context are serialized locally into a `.loa/` folder inside your project. This guarantees zero cross-project leakage and 100% offline functionality.
-3. **Optional Native Sandboxing:** Because LLMs can hallucinate dangerous shell commands, Loa offers an optional, native Docker container (`loa-sandbox`). When used, the agent operates securely inside this isolated Debian runtime, rather than directly on your host machine.
+1. **Reliability over Hallucination (State-Machine Architecture):** Most agents rely on unstructured, open-ended loops that frequently hallucinate, get stuck in infinite retry loops, or quietly fail. Loa strictly enforces a Directed Acyclic Graph (DAG) state-machine. It must formulate a plan, execute a step, verify the result, and self-correct explicitly. 
+2. **100% Offline & Private:** Loa does not rely on cloud vector databases. Project Memory and working context are serialized locally into a `.loa/` folder inside your project. This guarantees zero cross-project leakage and 100% offline functionality.
+3. **Safe Execution (Native Sandboxing):** Because LLMs can hallucinate dangerous shell commands, Loa offers an optional, native Docker container (`loa-sandbox`). When used, the agent operates securely inside this isolated Debian runtime, rather than directly on your host machine.
 
 ## Quick Start
 
