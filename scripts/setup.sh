@@ -1,12 +1,13 @@
 #!/bin/bash
 set -e
 
-LOCAL_MODE=0
-if [ "$1" == "--local" ]; then
-    LOCAL_MODE=1
-fi
+main() {
+    LOCAL_MODE=0
+    if [ "$1" == "--local" ]; then
+        LOCAL_MODE=1
+    fi
 
-echo "Setting up Loa..."
+    echo "Setting up Loa..."
 
 ARCH=$(uname -m)
 if [ "$ARCH" == "x86_64" ]; then
@@ -146,9 +147,12 @@ if [[ "$INSTALL_SANDBOX" =~ ^[Yy]$ ]]; then
     echo "  alias loa-sandbox='$SANDBOX_TARGET/run.sh'"
 fi
 
-# Cleanup
-if [ -n "$TMP_DIR" ] && [ -d "$TMP_DIR" ]; then
-    rm -rf "$TMP_DIR"
-fi
+    # Cleanup
+    if [ -n "$TMP_DIR" ] && [ -d "$TMP_DIR" ]; then
+        rm -rf "$TMP_DIR"
+    fi
 
-echo "All Done!"
+    echo "All Done!"
+}
+
+main "$@"
