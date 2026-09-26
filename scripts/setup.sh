@@ -112,9 +112,9 @@ if ! command -v docker >/dev/null 2>&1 || ! (command -v docker-compose >/dev/nul
     echo "================================================================="
 fi
 
-read -p "Would you like to install the loa-sandbox environment for safe containerized execution? (y/N) " INSTALL_SANDBOX
+read -p "Would you like to install the loa-sandbox environment for safe containerized execution? (y/N) " INSTALL_SANDBOX < /dev/tty
 if [[ "$INSTALL_SANDBOX" =~ ^[Yy]$ ]]; then
-    read -p "Enter installation path for loa-sandbox [default: $HOME/loa-sandbox]: " SANDBOX_TARGET
+    read -p "Enter installation path for loa-sandbox [default: $HOME/loa-sandbox]: " SANDBOX_TARGET < /dev/tty
     SANDBOX_TARGET=${SANDBOX_TARGET:-$HOME/loa-sandbox}
     
     mkdir -p "$SANDBOX_TARGET"
