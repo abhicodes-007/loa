@@ -19,7 +19,7 @@
 Loa is a local-first, stateful coding agent explicitly designed for project-wide architecture and high-level development tasks. To achieve deeper, more reliable reasoning than standard coding models, Loa operates on a strict, continuous cognitive state-machine (Planner -> Executor -> Reflection). It deliberately trades execution time and raw inference count for higher execution quality and verified logic manipulation. It persists state locally per project and optionally executes within an isolated Docker sandbox for system safety.
 
 > [!IMPORTANT]  
-> **Cost Warning:** Loa uses a **massive** amount of inferences continuously while crawling and executing. We strongly discourage using cloud-based API providers (like OpenAI or Anthropic) as it will generate massive costs. Loa is strictly designed for **self-hosted, local environments** where there is no per-token cost.
+> **Cost Warning:** Loa uses a **massive** amount of inferences continuously to achieve it's high-quality reasoning and output. We strongly discourage using cloud-based API providers (like OpenAI or Anthropic) as it will generate massive costs. Loa is strictly designed for **self-hosted, local environments** where there is no per-token cost.
 
 ## Why Loa? (Core Strengths)
 
