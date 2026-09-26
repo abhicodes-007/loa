@@ -1,0 +1,7 @@
+services:
+  test:
+    image: alpine
+    container_name: loa-test
+    volumes:
+      - ${TEST_DIR}:/workspace
+    command: sleep 1000

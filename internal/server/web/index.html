@@ -1,0 +1,408 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Loa</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/laughingloader.css">
+  <link rel="stylesheet" href="/prism.min.css">
+</head>
+<body>
+  <div class="scanline"></div>
+  <header class="topbar">
+    <div class="brand"><span class="sigil">◈</span><span>LOA</span><small>LOCAL AGENT</small></div>
+    <div class="telemetry">
+      <div id="inferenceCounter" class="counter inference-counter" tabindex="0">
+        <b id="infCount">0</b><small>INFERENCE</small>
+        <div id="inferenceTooltip" class="inference-tooltip">
+          <div class="tooltip-tabs">
+            <button type="button" class="tooltip-tab active" data-inference-tab="groups">GROUPS</button>
+            <button type="button" class="tooltip-tab" data-inference-tab="primitives">PRIMITIVES</button>
+          </div>
+          <div id="inferenceGroups" class="inference-view active"></div>
+          <div id="inferencePrimitives" class="inference-view"></div>
+        </div>
+      </div>
+      <span class="counter"><b id="embCount">0</b><small>EMBEDDINGS</small></span>
+      <span class="status"><div class="laughing-loader"></div><span id="statusText">BOOTING</span></span>
+    </div>
+    <div class="actions">
+      <select id="sessionSelect" class="session-select" aria-label="Active session"></select>
+      <div class="dropdown">
+        <button id="menuBtn" class="primary">☰ MENU</button>
+        <div id="dropdownMenu" class="dropdown-content">
+          <button id="newSessionBtn" type="button">New Session</button>
+          <button id="saveBtn" data-action="save">Save Session</button>
+          <hr>
+          <button data-action="pause" style="display:none; color: var(--warn);">Pause Plan</button>
+          <button data-action="resume" style="display:none; color: var(--good);">Resume Plan</button>
+          <button data-action="stop" style="color: var(--bad);" disabled>Stop Execution</button>
+          <hr>
+          <button data-action="reindex">Reindex Codebase</button>
+          <button data-action="settings">Settings</button>
+          <button data-action="dump">Debug Dump</button>
+          <hr>
+          <button data-action="about">About</button>
+          <button data-action="quit" style="color: var(--bad);">Quit</button>
+        </div>
+      </div>
+    </div>
+  </header>
+  <div class="rootline"><span>PROJECT</span><code id="projectRoot">...</code><span id="indexState" class="muted"></span></div>
+
+  <main class="workspace">
+    <section class="chat-pane panel">
+      <div class="panel-title" style="display: flex; align-items: center;">
+        <span>CHAT</span>
+        <button type="button" id="collapseChatBtn" class="collapse-btn" title="Toggle Chat Pane" style="margin-left: auto; background: transparent; border: none; color: var(--muted); cursor: pointer; padding: 0 5px;">◀</button>
+      </div>
+      <div id="chat" class="chat"></div>
+      <div id="chatDivider" class="resizer horizontal" title="Drag to resize chat input"></div>
+      <form id="chatForm" class="composer">
+        <textarea id="messageInput" rows="3" placeholder="Talk to Loa…  Ctrl+Enter to send"></textarea>
+        <button type="submit" class="primary">SEND</button>
+      </form>
+    </section>
+
+    <div id="mainDivider" class="resizer vertical" title="Drag to resize panels"></div>
+
+    <section class="inspect-pane panel">
+      <nav class="tabs top-tabs" style="display:flex; align-items: center; overflow-x: auto; border-bottom: 1px solid var(--line);">
+        <button type="button" id="collapseInspectBtn" class="collapse-btn" title="Toggle Inspect Pane" style="background: transparent; border: none; color: var(--muted); cursor: pointer; padding: 0 10px; border-right: 1px solid var(--line); margin-right: 5px;">▶</button>
+        <button class="top-tab active" data-group="planning">PLANNING</button>
+        <button class="top-tab" data-group="memory">MEMORY</button>
+        <button class="top-tab" data-group="outputs">OUTPUTS</button>
+      </nav>
+      
+      <!-- Sub tabs for Planning -->
+      <nav class="tabs sub-tabs" id="subtabs-planning" style="display:flex; padding: 0; border-bottom: 1px solid var(--border);">
+        <button class="tab active" data-tab="plan">PLAN</button>
+        <button class="tab" data-tab="graph">GRAPH</button>
+      </nav>
+
+      <!-- Sub tabs for Memory -->
+      <nav class="tabs sub-tabs" id="subtabs-memory" style="display:none; padding: 0; border-bottom: 1px solid var(--border);">
+        <button class="tab" data-tab="working-memory">WORKING MEMORY</button>
+        <button class="tab" data-tab="memory">SESSION MEMORY</button>
+        <button class="tab" data-tab="memory-viewer">PROJECT MEMORY</button>
+      </nav>
+
+      <!-- Sub tabs for Outputs -->
+      <nav class="tabs sub-tabs" id="subtabs-outputs" style="display:none; padding: 0; border-bottom: 1px solid var(--border);">
+        <button class="tab" data-tab="artifacts">ARTIFACTS</button>
+        <button class="tab" data-tab="context">LAST CONTEXT</button>
+        <button class="tab" data-tab="log">EXECUTION LOG</button>
+      </nav>
+      <div id="tab-plan" class="tabbody active">
+        <div id="planToolbar" style="margin-bottom: 12px; display: none;"></div>
+        <div id="plan"></div>
+      </div>
+      <div id="tab-working-memory" class="tabbody">
+        <div style="padding: 15px;">
+          <h3 style="margin-top: 0;">Working Memory</h3>
+          <p style="font-size: 12px; color: var(--muted); margin-bottom: 15px;">Active context loaded into the agent's prompt for the current step.</p>
+          <div id="workingMemoryContainer"></div>
+        </div>
+      </div>
+      <div id="tab-context" class="tabbody">
+        <div class="context-tools" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid var(--border);">
+          <div class="budget-meter" style="flex: 1; margin-right: 15px; position: relative; height: 16px; background: #0c2634; border-radius: 8px; overflow: hidden; display: flex; align-items: center; justify-content: center;">
+            <div id="budgetMeterFill" style="position: absolute; left: 0; top: 0; bottom: 0; width: 0%; background: var(--cyan); transition: width 0.3s; opacity: 0.3;"></div>
+            <span id="budgetMeterText" style="position: relative; font-size: 10px; font-weight: bold; color: var(--text); z-index: 1;">0 / 16000 chars</span>
+          </div>
+          <button id="copyContextBtn" type="button" style="padding: 4px 10px; font-size: 10px; font-weight: bold;">COPY CONTEXT</button>
+        </div>
+        <pre id="context" class="codeblock" style="margin: 0;"></pre>
+      </div>
+      <div id="tab-memory" class="tabbody">
+        <input type="text" id="memorySearchInput" placeholder="Filter memories..." style="width:100%; margin-bottom:10px; padding:6px; background:#050c11; border:1px solid var(--line); color:var(--text); font-size:11px;">
+        <div id="memory"></div>
+      </div>
+      <div id="tab-memory-viewer" class="tabbody" style="padding:0;">
+        <div class="viewer-layout">
+          <div id="fileTree" class="file-tree"></div>
+          <div id="fileContent" class="file-content">
+            <div class="file-placeholder">Select a file to view its Narrative Frames and AST</div>
+          </div>
+        </div>
+      </div>
+      <div id="tab-artifacts" class="tabbody" style="padding:0;">
+        <div class="viewer-layout">
+          <div id="artifactList" class="file-tree"></div>
+          <div id="artifactContent" class="file-content">
+            <div class="file-placeholder">Select an artifact to view its contents</div>
+          </div>
+        </div>
+      </div>
+      <div id="tab-graph" class="tabbody" style="padding: 0; position: relative;">
+        <div id="planGraph" style="width: 100%; height: 100%; background: #050c11;"></div>
+        <div class="graph-controls" style="position: absolute; bottom: 20px; right: 20px; display: flex; flex-direction: column; gap: 8px; z-index: 10;">
+          <button type="button" id="graphZoomInBtn" class="icon-btn" title="Zoom In" style="background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 8px; border-radius: 4px; cursor: pointer;">➕</button>
+          <button type="button" id="graphZoomOutBtn" class="icon-btn" title="Zoom Out" style="background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 8px; border-radius: 4px; cursor: pointer;">➖</button>
+          <button type="button" id="graphFitBtn" class="icon-btn" title="Fit to Screen" style="background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 8px; border-radius: 4px; cursor: pointer;">⛶</button>
+        </div>
+      </div>
+      <div id="tab-log" class="tabbody">
+        <div class="logtools" id="logFilters"></div>
+        <div id="executionLog"></div>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast"></div>
+
+  <dialog id="approvalDialog" class="modal">
+    <form method="dialog" class="modal-card">
+      <div class="modal-head"><h2>APPROVAL REQUIRED</h2><span class="pulse">●</span></div>
+      <div class="kv"><span>TOOL</span><code id="approvalTool"></code></div>
+      <div class="kv"><span>REASON</span><div id="approvalReason"></div></div>
+      <div class="kv"><span>TARGET</span><pre id="approvalTarget" class="inline-command"></pre></div>
+      <details><summary>Exact request</summary><pre id="approvalInput" class="codeblock"></pre></details>
+      <div class="approval-guidance">
+        <textarea id="approvalGuidanceInput" rows="2" placeholder="Send guidance instead of approving this action…"></textarea>
+        <button id="approvalGuidanceBtn" type="button">STEER TASK</button>
+      </div>
+      <div class="modal-actions">
+        <button id="denyBtn" value="cancel" class="danger" type="button">DENY</button>
+        <button id="allowRunBtn" type="button" title="Automatically approve this exact command and parameters for the rest of this Loa run">ALLOW RUN</button>
+        <button id="allowBtn" value="default" class="primary" type="button">ALLOW</button>
+      </div>
+    </form>
+  </dialog>
+
+
+  <dialog id="sessionDialog" class="modal">
+    <form id="sessionForm" class="modal-card">
+      <div class="modal-head"><h2>CREATE SESSION</h2><button id="closeSession" type="button">×</button></div>
+      <p class="muted">Give this work session a short, recognizable title.</p>
+      <label class="session-title-label">SESSION TITLE<input id="sessionTitleInput" type="text" maxlength="120" autocomplete="off" placeholder="UI cleanup" required></label>
+      <div class="modal-actions">
+        <button id="createSessionBtn" class="primary" type="submit">CREATE</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="logDetailModal" class="modal wide">
+    <form method="dialog" class="modal-card">
+      <div class="modal-head"><h2 id="logDetailTitle">EXECUTION LOG</h2><button id="closeLogDetail" type="button">×</button></div>
+      <div class="kv"><span>TIMESTAMP</span><span id="logDetailTime"></span></div>
+      <div id="logDetailInputContainer" style="display:none; margin-top: 14px;">
+        <div class="muted" style="margin-bottom: 5px;">INPUT</div>
+        <div id="logDetailInput"></div>
+      </div>
+      <div id="logDetailOutputContainer" style="display:none; margin-top: 14px;">
+        <div class="muted" style="margin-bottom: 5px;">OUTPUT</div>
+        <div id="logDetailOutput"></div>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="settingsDialog" class="modal wide">
+    <form method="dialog" class="modal-card settings-card">
+      <div class="modal-head"><h2>LOA SETTINGS</h2><button id="closeSettings" type="button">×</button></div>
+      <div class="tabs settings-tabs" style="display:flex; overflow-x:auto;">
+        <button type="button" class="tab settings-tab active" data-target="modelTab">Model & Limits</button>
+        <button type="button" class="tab settings-tab" data-target="indexingTab">File Indexing & Tools</button>
+        <button type="button" class="tab settings-tab" data-target="memoryPhysicsTab">Memory Physics</button>
+        <button type="button" class="tab settings-tab" data-target="contextTab">Context Synthesis</button>
+        <button type="button" class="tab settings-tab" data-target="toolsTab">Tools & Permissions</button>
+      </div>
+
+      <div id="modelTab" class="tabbody settings-tabbody active">
+        <div class="settings-grid">
+          <label>API Base URL<input id="ollamaUrl" type="text"></label>
+          <label>API Key (Bearer Token)<input id="apiKey" type="password"></label>
+          <label class="full" style="grid-column:1/-1; display:flex; align-items:center; gap:8px;">
+            <input type="checkbox" id="syncModels" checked style="width:auto; margin-top:0; cursor:pointer;"> Use one model for all inferences
+          </label>
+          <label><span id="textModelCrawling">Crawling model</span><select id="modelCrawling"></select></label>
+          <label>Conversation model<select id="modelConversation"></select></label>
+          <label>Planning model<select id="modelPlanning"></select></label>
+          <label>Executing model<select id="modelExecuting"></select></label>
+          <label>Embedding model<select id="embeddingModel"></select></label>
+          <label>JSON repair attempts<input id="repairAttempts" type="number" min="1"></label>
+          <label>Max execution loops<input id="maxExecutionLoops" type="number" min="1"></label>
+          <label>Max plan depth<input id="maxPlanDepth" type="number" min="1"></label>
+          <label title="Model timeout in seconds">Model timeout (sec)<input id="modelTimeout" type="number" min="1"></label>
+          <label title="Command timeout in seconds">Command timeout (sec)<input id="commandTimeout" type="number" min="1"></label>
+          <label title="How long to wait when checking if the inference server is reachable">LLM Polling Timeout (sec)<input id="llmPollingTimeout" type="number" min="1"></label>
+          <label title="HTTP header read timeout for the internal Loa UI webserver">Server Header Timeout (sec)<input id="serverHeaderTimeout" type="number" min="1"></label>
+        </div>
+      </div>
+
+      <div id="indexingTab" class="tabbody settings-tabbody">
+        <div class="settings-grid">
+          <label title="Delay before triggering a cache invalidation after a file save. Increase if your IDE autosaves constantly to prevent thrashing">FS Watcher Debounce (ms)<input id="fsWatcherDebounce" type="number" min="0"></label>
+          <label title="The absolute memory limit for storing stdout/stderr logs from a tool execution">Max Tool Output Bytes<input id="maxToolOutputBytes" type="number" min="1024"></label>
+          <label title="Files with fewer lines than this skip AST chunking entirely and are indexed as a single block">Crawler Small File Threshold (lines)<input id="crawlerSmallFileThreshold" type="number" min="1"></label>
+          <label title="The target block size when the crawler uses the AST index to slice large files. Adjust based on your model's context window">Crawler Max Chunk Lines<input id="crawlerMaxChunkLines" type="number" min="1"></label>
+        </div>
+        <label class="full">.loaignore (Files/Dirs to skip)<textarea id="settingsIgnore" rows="5" placeholder="node_modules/&#10;.git/&#10;.loa/&#10;loa&#10;dist/&#10;build/"></textarea></label>
+      </div>
+
+      <div id="memoryPhysicsTab" class="tabbody settings-tabbody">
+        <div class="settings-grid">
+          <label>Memory Top-K<input id="memoryTopK" type="number" min="1"></label>
+          <label>Memory candidate pool<input id="memoryPool" type="number" min="1"></label>
+          <label title="How fast permanent project memory decays in relevance over time">LTS Decay Half-Life (Hours)<input id="memoryLTSDecay" type="number" min="0" step="0.1"></label>
+          <label title="Controls the maximum relevance score bump long-term memory can receive">LTS Max Weight<input id="memoryLTSWeight" type="number" min="0" step="0.01"></label>
+          <label title="How fast short-term working memory decays during an active session">Session Decay Half-Life (Hours)<input id="memorySessionDecay" type="number" min="0" step="0.1"></label>
+          <label title="Controls the recency bias multiplier for short-term session facts">Session Max Weight<input id="memorySessionWeight" type="number" min="0" step="0.01"></label>
+          <label title="Maximum number of LLM iteration loops allowed when debating an ambiguous semantic search">Memory Rerank Gates<input id="memoryRerankGates" type="number" min="1"></label>
+          <label title="Multiplier limit for expanding the vector search pool if the initial search fails">Memory Pool Expansion Limit<input id="memoryPoolExpansion" type="number" min="1"></label>
+        </div>
+      </div>
+
+      <div id="contextTab" class="tabbody settings-tabbody">
+        <div class="settings-grid">
+          <label>Total Context Budget<input id="contextBudget" type="number" min="4096"></label>
+          <label>Recent messages<input id="recentMessages" type="number" min="1"></label>
+          <label title="The exact number of previous task steps and results injected into the active prompt">Recent Task Breadcrumbs<input id="contextRecentBreadcrumbs" type="number" min="0"></label>
+        </div>
+        
+        <div class="budget-allocator">
+          <div class="budget-labels">
+            <span>Output Reserve</span>
+            <span>Code Budget</span>
+            <span>Chat History</span>
+          </div>
+          <div class="multi-slider" id="budgetSlider">
+            <div class="slice slice-output" id="sliceOutput"></div>
+            <div class="slice slice-code" id="sliceCode"></div>
+            <div class="slice slice-chat" id="sliceChat"></div>
+            <div class="thumb" id="thumb1"></div>
+            <div class="thumb" id="thumb2"></div>
+          </div>
+          <div class="budget-values">
+            <span id="valOutput"></span>
+            <span id="valCode"></span>
+            <span id="valChat"></span>
+          </div>
+        </div>
+
+        <div class="settings-grid" style="margin-top: 15px;">
+          <label title="Hard floor for token buffering safety limit">Context Minimum Buffer<input id="contextMinBuffer" type="number" min="1"></label>
+          <label title="Absolute minimum allowed context budget regardless of dynamic math">Context Safe Budget Floor<input id="contextSafeBudget" type="number" min="1"></label>
+          <label title="Hard floor for how much code can be injected into the prompt">Code Budget Max Floor<input id="contextCodeMaxFloor" type="number" min="1"></label>
+        </div>
+
+        <label class="full">Persistent project instructions<textarea id="projectInstructions" rows="5" placeholder="Coding conventions, architectural rules, style preferences…"></textarea></label>
+      </div>
+
+      <div id="toolsTab" class="tabbody settings-tabbody">
+        <fieldset>
+          <legend>TOOL PERMISSIONS</legend>
+          <div class="radio-row">
+            <label><input type="radio" name="permMode" value="ask_all"> ask every tool</label>
+            <label><input type="radio" name="permMode" value="ask_selected"> ask selected tools</label>
+            <label><input type="radio" name="permMode" value="allow_all"> allow all</label>
+          </div>
+          <div id="permChecks" class="permission-grid"></div>
+          <p style="color: var(--warn);">Shell/process commands are intentionally not “safety parsed”. If commands are allowed, they can escape the project root.</p>
+        </fieldset>
+      </div>
+      <div class="modal-actions split">
+        <button id="resetDefaults" type="button" class="secondary">RESET TO DEFAULTS</button>
+        <button id="saveGlobal" type="button">SAVE GLOBAL DEFAULTS</button>
+        <button id="saveProject" type="button" class="primary">SAVE PROJECT SETTINGS</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="globalSetupDialog" class="modal">
+    <form method="dialog" class="modal-card settings-card">
+      <div class="modal-head"><h2>INITIAL SETUP</h2></div>
+      <p style="font-size:11px;color:var(--muted);margin-bottom:14px;line-height:1.4">Welcome to LOA! Please configure your AI provider to continue.</p>
+      <div class="settings-grid" style="grid-template-columns:1fr 1fr;gap:10px">
+        <label class="full" style="grid-column:1/-1">API Base URL<input id="setupUrl" type="text" placeholder="http://127.0.0.1:11434" required></label>
+        <label class="full" style="grid-column:1/-1">API Key (Optional)<input id="setupKey" type="password"></label>
+        
+        <div style="grid-column:1/-1;margin-bottom:10px">
+          <button id="setupConnectBtn" type="button" style="width:100%">CONNECT</button>
+        </div>
+
+        <label class="full" style="grid-column:1/-1; display:flex; align-items:center; gap:8px;">
+          <input type="checkbox" id="setupSyncModels" checked style="width:auto; margin-top:0; cursor:pointer;"> Use one model for all inferences
+        </label>
+        <label><span id="textSetupModelCrawling">Crawling Model</span><select id="setupModelCrawling" required></select></label>
+        <label>Conversation Model<select id="setupModelConversation" required></select></label>
+        <label>Planning Model<select id="setupModelPlanning" required></select></label>
+        <label>Executing Model<select id="setupModelExecuting" required></select></label>
+        <label class="full" style="grid-column:1/-1">Embedding Model<select id="setupEmbedding" required></select></label>
+        <label class="full" style="grid-column:1/-1">Total Context Budget (Tokens)<input id="setupBudget" type="number" min="4096" value="16000"></label>
+      </div>
+      <div class="modal-actions" style="margin-top:20px">
+        <button id="setupSaveBtn" type="button" class="primary" style="width:100%">SAVE GLOBAL DEFAULTS & START</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="projectSetupDialog" class="modal">
+    <form method="dialog" class="modal-card settings-card">
+      <div class="modal-head"><h2>NEW PROJECT DETECTED</h2></div>
+      <p style="font-size:11px;color:var(--muted);margin-bottom:14px;line-height:1.4">Before LOA scans your workspace, configure your crawl ignores and project purpose.</p>
+      
+      <label class="full">Initial Session Title<input id="projSetupSessionTitle" type="text" placeholder="Initial Setup & Exploration" required></label>
+      <label class="full">Project Purpose (Global Concept Memory)<textarea id="projSetupPurpose" rows="3" placeholder="What is this project? e.g. A Go web server for managing IoT devices..."></textarea></label>
+      <label class="full">.loaignore (Files/Dirs to skip)<textarea id="projSetupIgnore" rows="5" placeholder="node_modules/&#10;.git/&#10;.loa/&#10;loa&#10;dist/&#10;build/"></textarea></label>
+      
+      <div class="modal-actions" style="margin-top:20px">
+        <button id="projSetupSaveBtn" type="button" class="primary" style="width:100%">START BOOT SCAN</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="memoryEditDialog" class="modal">
+    <form method="dialog" class="modal-card">
+      <div class="modal-head"><h2>EDIT MEMORY</h2><button id="closeMemoryEdit" type="button">×</button></div>
+      <label class="full">Memory Text
+        <textarea id="memoryEditTextInput" rows="5" required></textarea>
+      </label>
+      <div class="modal-actions" style="margin-top:20px">
+        <button id="memoryEditSaveBtn" type="button" class="primary" style="width:100%">SAVE CHANGES</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="stepDetailsDialog" class="modal">
+    <div class="modal-card" style="max-width: 600px; max-height: 80vh; display: flex; flex-direction: column;">
+      <h3>Plan Step Details</h3>
+      <div id="stepDetailsContent" style="flex: 1; overflow-y: auto; padding: 15px 0; font-family: var(--font); color: var(--text);">
+        <!-- Step details injected here -->
+      </div>
+      <div class="modal-actions" style="margin-top: 15px;">
+        <button type="button" id="closeStepDetails" class="secondary">CLOSE</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="aboutDialog" class="modal">
+    <div class="modal-card" style="max-width: 400px; text-align: center;">
+      <div class="modal-head" style="justify-content: center; border-bottom: none; padding-bottom: 0;">
+        <h2 style="font-size: 24px; letter-spacing: 2px;">LOA</h2>
+      </div>
+      <p style="color: var(--cyan); font-size: 10px; font-weight: bold; letter-spacing: 1px; margin-bottom: 20px;">LOCAL AUTONOMOUS AGENT</p>
+      
+      <div style="background: #050c11; border: 1px solid var(--line); padding: 15px; border-radius: 4px; margin-bottom: 20px;">
+        <p style="font-size: 12px; margin-bottom: 5px;">Version</p>
+        <code id="aboutVersion" style="color: var(--good); font-size: 14px;">Loading...</code>
+      </div>
+
+      <p style="font-size: 12px; color: var(--muted); margin-bottom: 20px; line-height: 1.5;">
+        Designed to solve macro-level architectural work through dynamic thought composition.
+      </p>
+
+      <div class="modal-actions" style="justify-content: center;">
+        <button type="button" id="closeAboutBtn" class="primary" style="width: 100%;">CLOSE</button>
+      </div>
+    </div>
+  </dialog>
+
+  <script src="/vis-network.min.js"></script>
+  <script src="/marked.min.js"></script>
+  <script src="/prism.min.js"></script>
+  <script src="/mermaid.min.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+/loa
+*.tmp
+.loa-state.json
+.loa-debug-*.json
+.loa.json
+.loaignore
+*.py
+tmp/*
+sandbox/config/
+sandbox/loa-src/
+sandbox/loa-bin
+.idea/

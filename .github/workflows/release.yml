@@ -1,0 +1,59 @@
+name: Build and Release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build and Package
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            archive_name: loa-linux-amd64.tar.gz
+          - goos: linux
+            goarch: arm64
+            archive_name: loa-linux-arm64.tar.gz
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.23.0" # Match the Dockerfile/setup version
+
+      - name: Build Loa Binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          go build -o loa ./cmd/loa
+
+      - name: Create Release Bundle
+        run: |
+          mkdir -p package/sandbox
+          
+          # Move binary to package
+          mv loa package/
+          
+          # Copy sandbox configuration
+          cp -r sandbox/* package/sandbox/
+          
+          # Compress everything into the final tar.gz archive
+          cd package
+          tar -czvf ../${{ matrix.archive_name }} .
+
+      - name: Upload Release Asset
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload ${{ github.event.release.tag_name }} ./${{ matrix.archive_name }} --clobber

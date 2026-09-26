@@ -1,0 +1,22 @@
+services:
+  loa:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: loa-sandbox
+    ports:
+      - "8104:8104"
+    environment:
+      - USER_ID=${USER_ID:-1000}
+      - GROUP_ID=${GROUP_ID:-1000}
+    volumes:
+      # Mount the target project dynamically
+      - ${TARGET_PROJECT:-./workspace}:/workspace
+      # Mount the global config dynamically
+      - ${CONFIG_MOUNT:-./config:/home/loa/.config/loa:rw}
+    # Allow communication to the host on Linux via host.docker.internal
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # Ensure standard input/output is attached
+    stdin_open: true
+    tty: true
