@@ -52,6 +52,8 @@ cd loa
 bash scripts/setup.sh --local
 ```
 
+> **📖 First Time User?** Before running the agent, please read the [Usage Guide & Setup Instructions](docs/getting_started/usage_guide.md) to learn how to configure your LLM, allocate context budget based on your hardware, and navigate the initial setup wizards.
+
 ### Running the Agent
 
 1. Start your local LLM server (e.g. `ollama serve`).

@@ -220,7 +220,11 @@
           <label>Conversation model<select id="modelConversation"></select></label>
           <label>Planning model<select id="modelPlanning"></select></label>
           <label>Executing model<select id="modelExecuting"></select></label>
-          <label>Embedding model<select id="embeddingModel"></select></label>
+          <label title="Requires a dedicated embedding model like nomic-embed-text">Embedding model<select id="embeddingModel"></select></label>
+          <div class="full" style="grid-column:1/-1;margin-top:10px;margin-bottom:10px">
+            <button id="testSettingsLlmBtn" type="button" class="secondary" style="width:100%;">TEST CONFIGURATION</button>
+            <div id="testSettingsLlmResult" style="margin-top:8px; font-size:12px; text-align:center;"></div>
+          </div>
           <label>JSON repair attempts<input id="repairAttempts" type="number" min="1"></label>
           <label>Max execution loops<input id="maxExecutionLoops" type="number" min="1"></label>
           <label>Max plan depth<input id="maxPlanDepth" type="number" min="1"></label>
@@ -320,6 +324,7 @@
         
         <div style="grid-column:1/-1;margin-bottom:10px">
           <button id="setupConnectBtn" type="button" style="width:100%">CONNECT</button>
+          <div id="setupConnectResult" style="margin-top:8px; font-size:12px; text-align:center;"></div>
         </div>
 
         <label class="full" style="grid-column:1/-1; display:flex; align-items:center; gap:8px;">
@@ -329,7 +334,11 @@
         <label>Conversation Model<select id="setupModelConversation" required></select></label>
         <label>Planning Model<select id="setupModelPlanning" required></select></label>
         <label>Executing Model<select id="setupModelExecuting" required></select></label>
-        <label class="full" style="grid-column:1/-1">Embedding Model<select id="setupEmbedding" required></select></label>
+        <label title="Requires a dedicated embedding model like nomic-embed-text">Embedding Model<select id="setupEmbedding" required></select></label>
+        <div class="full" style="grid-column:1/-1;margin-bottom:10px">
+          <button id="testSetupLlmBtn" type="button" class="secondary" style="width:100%;">TEST CONFIGURATION</button>
+          <div id="testSetupLlmResult" style="margin-top:8px; font-size:12px; text-align:center;"></div>
+        </div>
         <label class="full" style="grid-column:1/-1">Total Context Budget (Tokens)<input id="setupBudget" type="number" min="4096" value="16000"></label>
       </div>
       <div class="modal-actions" style="margin-top:20px">

@@ -81,6 +81,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/config/default", s.handleConfigDefault)
 	mux.HandleFunc("POST /api/loaignore", s.writeGuard(s.handleLoaignore))
 	mux.HandleFunc("POST /api/setup/project", s.writeGuard(s.handleSetupProject))
+	mux.HandleFunc("POST /api/test-llm", s.writeGuard(s.handleTestLLM))
 	mux.HandleFunc("GET /api/memory/tree", s.handleMemoryTree)
 	mux.HandleFunc("GET /api/memory/file", s.handleMemoryFile)
 	mux.HandleFunc("POST /api/memory/frame", s.writeGuard(s.handleMemoryFrame))
@@ -432,9 +433,7 @@ func (s *Server) handleSetupProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Purpose != "" {
-		s.agent.AddGlobalConcept(r.Context(), req.Purpose)
-	}
+
 
 	s.agent.SetNeedsProjectSetup(false)
 
@@ -447,15 +446,18 @@ func (s *Server) handleSetupProject(w http.ResponseWriter, r *http.Request) {
 		log.Printf("failed to create initial session: %v", err)
 	}
 
-	go func() {
+	go func(purpose string) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
 		s.agent.LockSystemTask("indexing")
+		if purpose != "" {
+			s.agent.AddGlobalConcept(ctx, purpose)
+		}
 		if err := s.agent.BootScan(ctx); err != nil {
 			log.Printf("boot scan after setup failed: %v", err)
 		}
 		s.agent.UnlockSystemTask()
-	}()
+	}(req.Purpose)
 
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
@@ -705,4 +707,49 @@ func (s *Server) handleMemoryPurge(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (s *Server) handleTestLLM(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		URL            string `json:"ollama_url"`
+		Key            string `json:"api_key"`
+		ChatModel      string `json:"chat_model"`
+		EmbeddingModel string `json:"embedding_model"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid request")
+		return
+	}
+
+	testCfg := config.Default()
+	testCfg.OllamaURL = req.URL
+	testCfg.APIKey = req.Key
+	testCfg.EmbeddingModel = req.EmbeddingModel
+	testClient := llm.New(func() config.Config { return testCfg })
+
+	if req.ChatModel != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_, err := testClient.ChatText(ctx, req.ChatModel, "You are a test bot. Respond with 'ok'.", "Respond with 'ok'")
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, fmt.Sprintf("Chat model test failed for '%s': %v", req.ChatModel, err))
+			return
+		}
+	}
+
+	if req.EmbeddingModel != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		vec, err := testClient.Embed(ctx, "test embedding")
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, fmt.Sprintf("Embedding model test failed for '%s'. Are you sure it's an embedding model? Error: %v", req.EmbeddingModel, err))
+			return
+		}
+		if len(vec) == 0 {
+			writeErr(w, http.StatusBadRequest, fmt.Sprintf("Embedding model '%s' returned 0 vector dimensions.", req.EmbeddingModel))
+			return
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
 }
