@@ -1514,6 +1514,12 @@
     const url = $('#setupUrl').value.trim();
     const key = $('#setupKey').value.trim();
     if (!url) return;
+    
+    const origText = $('#setupConnectBtn').textContent;
+    $('#setupConnectBtn').textContent = 'CONNECTING...';
+    $('#setupConnectBtn').disabled = true;
+    $('#setupConnectResult').textContent = '';
+    
     try {
       const c = readConfig();
       c.ollama_url = url;
@@ -1523,15 +1529,85 @@
       const models = m.models || [];
       const html = ['<option value="">— select —</option>', ...models.map(m => `<option value="${esc(m)}">${esc(m)}</option>`)].join('');
       $('#setupModelCrawling').innerHTML = html;
-    $('#setupModelConversation').innerHTML = html;
-    $('#setupModelPlanning').innerHTML = html;
-    $('#setupModelExecuting').innerHTML = html;
+      $('#setupModelConversation').innerHTML = html;
+      $('#setupModelPlanning').innerHTML = html;
+      $('#setupModelExecuting').innerHTML = html;
       $('#setupEmbedding').innerHTML = html;
       toast(`Found ${models.length} models`);
+      $('#setupConnectResult').textContent = `✅ Success! Found ${models.length} models.`;
+      $('#setupConnectResult').style.color = '#34d399';
     } catch (e) {
       toast(`Connection failed: ${e.message}`, true);
+      $('#setupConnectResult').textContent = `❌ Connection failed: ${e.message}`;
+      $('#setupConnectResult').style.color = '#f87171';
+    } finally {
+      $('#setupConnectBtn').textContent = origText;
+      $('#setupConnectBtn').disabled = false;
     }
   };
+
+  async function testLLM(url, key, chatModel, embedModel, btnEl, resultEl) {
+    if (!url || (!chatModel && !embedModel)) {
+      toast('Please configure URL and at least one model before testing', true);
+      return;
+    }
+    const origText = btnEl.textContent;
+    btnEl.textContent = 'TESTING...';
+    btnEl.disabled = true;
+    resultEl.textContent = '';
+    resultEl.style.color = 'var(--text-bright)';
+    
+    try {
+      const res = await fetch('/api/test-llm', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-Loa-Token': token},
+        body: JSON.stringify({
+          ollama_url: url,
+          api_key: key,
+          chat_model: chatModel,
+          embedding_model: embedModel
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Test failed');
+      }
+      resultEl.innerHTML = '<span style="display:inline-block; padding:4px 8px; background:rgba(52, 211, 153, 0.1); border-radius:4px;">✅ Success! Models configured correctly.</span>';
+      resultEl.style.color = '#34d399';
+    } catch (err) {
+      resultEl.innerHTML = `<span style="display:inline-block; padding:4px 8px; background:rgba(248, 113, 113, 0.1); border-radius:4px;">❌ ${err.message}</span>`;
+      resultEl.style.color = '#f87171';
+    } finally {
+      btnEl.textContent = origText;
+      btnEl.disabled = false;
+    }
+  }
+
+  if ($('#testSetupLlmBtn')) {
+    $('#testSetupLlmBtn').onclick = () => {
+      testLLM(
+        $('#setupUrl').value.trim(),
+        $('#setupKey').value.trim(),
+        $('#setupModelConversation').value,
+        $('#setupEmbedding').value,
+        $('#testSetupLlmBtn'),
+        $('#testSetupLlmResult')
+      );
+    };
+  }
+
+  if ($('#testSettingsLlmBtn')) {
+    $('#testSettingsLlmBtn').onclick = () => {
+      testLLM(
+        $('#ollamaUrl').value.trim(),
+        $('#apiKey').value.trim(),
+        $('#modelConversation').value,
+        $('#embeddingModel').value,
+        $('#testSettingsLlmBtn'),
+        $('#testSettingsLlmResult')
+      );
+    };
+  }
 
   $('#setupSaveBtn').onclick = async () => {
     const mc = $('#setupModelCrawling').value;
