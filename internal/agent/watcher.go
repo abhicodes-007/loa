@@ -10,6 +10,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/laughingmandev/loa/internal/state"
+	"github.com/laughingmandev/loa/internal/utils"
 )
 
 func (e *Engine) hasStaleFiles() bool {
@@ -53,9 +54,21 @@ func (e *Engine) repairStaleFiles(ctx context.Context) error {
 	e.staleFiles = make(map[string]bool)
 	e.mu.Unlock()
 
-	e.log(state.LogSystem, "Watcher", "Just-In-Time reconciliation triggered for stale files", strings.Join(files, ", "), "")
+	_, isIgnored := utils.ReadLoaignore(e.root)
+	var filtered []string
+	for _, f := range files {
+		if !isIgnored(f) {
+			filtered = append(filtered, f)
+		}
+	}
 
-	for _, file := range files {
+	if len(filtered) == 0 {
+		return nil
+	}
+
+	e.log(state.LogSystem, "Watcher", "Just-In-Time reconciliation triggered for stale files", strings.Join(filtered, ", "), "")
+
+	for _, file := range filtered {
 		_ = e.memStore.RemoveMemoriesByAnchor(file)
 	}
 
@@ -76,14 +89,21 @@ func (e *Engine) StartWatcher(ctx context.Context) error {
 		return err
 	}
 
+	_, isIgnored := utils.ReadLoaignore(e.root)
+
 	err = filepath.Walk(e.root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil
 		}
 		if info.IsDir() {
 			rel, _ := filepath.Rel(e.root, path)
-			if rel != "." && (strings.HasPrefix(rel, ".") || strings.Contains(rel, string(filepath.Separator)+".")) {
-				return filepath.SkipDir
+			if rel != "." {
+				if strings.HasPrefix(rel, ".") || strings.Contains(rel, string(filepath.Separator)+".") {
+					return filepath.SkipDir
+				}
+				if isIgnored(rel) {
+					return filepath.SkipDir
+				}
 			}
 			return watcher.Add(path)
 		}
