@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/laughingmandev/loa/internal/utils"
 )
 
 type Symbol struct {
@@ -411,6 +413,11 @@ func (i *Index) run(ctx context.Context, targets ...string) ([]Symbol, error) {
 
 		"-o",
 		"-",
+	}
+
+	ctagsExcludes, _ := utils.ReadLoaignore(i.root)
+	for _, excl := range ctagsExcludes {
+		args = append(args, "--exclude="+excl)
 	}
 
 	args = append(args, targets...)
