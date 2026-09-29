@@ -52,16 +52,32 @@
   <div class="rootline"><span>PROJECT</span><code id="projectRoot">...</code><span id="indexState" class="muted"></span></div>
 
   <main class="workspace">
-    <section class="chat-pane panel">
+    <section class="chat-pane panel" style="position: relative;">
       <div class="panel-title" style="display: flex; align-items: center;">
         <span>CHAT</span>
         <button type="button" id="collapseChatBtn" class="collapse-btn" title="Toggle Chat Pane" style="margin-left: auto; background: transparent; border: none; color: var(--muted); cursor: pointer; padding: 0 5px;">◀</button>
       </div>
+
+      <div id="attachmentsOverlay" class="attachments-overlay collapsed" style="position: absolute; top: 34px; left: 0; background: #071018; border: 1px solid var(--line); border-top: none; border-left: none; border-bottom-right-radius: 6px; z-index: 100; box-shadow: 3px 3px 10px rgba(0,0,0,0.4); max-width: 350px;">
+         <div class="attachments-header" style="display:flex; align-items:center; justify-content:space-between; padding: 6px 12px; cursor:pointer; background: transparent;">
+             <span id="attachmentsCount" style="font-size: 11px; font-weight: bold; color: var(--cyan);">📎 0</span>
+             <span id="attachmentsToggleIcon" style="font-size: 10px; color: var(--muted); margin-left: 10px;">▼</span>
+         </div>
+         <div id="attachmentsContent" style="display:none; padding: 10px; background: #04090d; min-width: 220px; border-top: 1px solid var(--line); border-bottom-right-radius: 6px;">
+             <div id="activeAttachmentsList" style="margin-bottom: 10px; max-height: 150px; overflow-y: auto;"></div>
+             <button type="button" id="openAttachModalBtn" style="width:100%; font-size: 11px;">+ ATTACH FILES</button>
+         </div>
+      </div>
+
       <div id="chat" class="chat"></div>
       <div id="chatDivider" class="resizer horizontal" title="Drag to resize chat input"></div>
       <form id="chatForm" class="composer">
         <textarea id="messageInput" rows="3" placeholder="Talk to Loa…  Ctrl+Enter to send"></textarea>
-        <button type="submit" class="primary">SEND</button>
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          <button type="submit" class="primary" style="flex: 1; padding: 0 15px;">SEND</button>
+          <button type="button" id="chatUploadBtn" title="Attach file" style="flex: 1; background: transparent; border: 1px solid var(--line); color: var(--muted); cursor: pointer; display: flex; align-items: center; justify-content: center;">📎</button>
+        </div>
+        <input type="file" id="chatUploadInput" multiple style="display:none;">
       </form>
     </section>
 
@@ -70,7 +86,7 @@
     <section class="inspect-pane panel">
       <nav class="tabs top-tabs" style="display:flex; align-items: center; overflow-x: auto; border-bottom: 1px solid var(--line);">
         <button type="button" id="collapseInspectBtn" class="collapse-btn" title="Toggle Inspect Pane" style="background: transparent; border: none; color: var(--muted); cursor: pointer; padding: 0 10px; border-right: 1px solid var(--line); margin-right: 5px;">▶</button>
-        <button class="top-tab active" data-group="planning">PLANNING</button>
+        <button class="top-tab active" data-group="planning">SESSION</button>
         <button class="top-tab" data-group="memory">MEMORY</button>
         <button class="top-tab" data-group="outputs">OUTPUTS</button>
       </nav>
@@ -79,6 +95,7 @@
       <nav class="tabs sub-tabs" id="subtabs-planning" style="display:flex; padding: 0; border-bottom: 1px solid var(--border);">
         <button class="tab active" data-tab="plan">PLAN</button>
         <button class="tab" data-tab="graph">GRAPH</button>
+        <button class="tab" data-tab="uploads">UPLOADS</button>
       </nav>
 
       <!-- Sub tabs for Memory -->
@@ -97,6 +114,17 @@
       <div id="tab-plan" class="tabbody active">
         <div id="planToolbar" style="margin-bottom: 12px; display: none;"></div>
         <div id="plan"></div>
+      </div>
+      <div id="tab-uploads" class="tabbody" style="padding:15px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+          <h3 style="margin:0;">Session Uploads</h3>
+          <button type="button" id="uploadBtn" class="primary">UPLOAD FILE</button>
+          <input type="file" id="uploadInput" multiple style="display:none;">
+        </div>
+        <p style="font-size: 12px; color: var(--muted); margin-bottom: 15px;">Files uploaded here are available to attach to the active prompt context.</p>
+        <div id="uploadListContainer">
+           <div class="empty">No files uploaded yet</div>
+        </div>
       </div>
       <div id="tab-working-memory" class="tabbody">
         <div style="padding: 15px;">
@@ -406,6 +434,27 @@
         <button type="button" id="closeAboutBtn" class="primary" style="width: 100%;">CLOSE</button>
       </div>
     </div>
+  </dialog>
+
+  <dialog id="attachModal" class="modal wide">
+    <form id="attachForm" class="modal-card" style="width: 800px; max-width: 90vw;">
+      <div class="modal-head"><h2>ATTACH FILES</h2><button id="closeAttachModal" type="button">×</button></div>
+      <div style="display:flex; gap: 20px; height: 400px; margin-top:10px;">
+        <div style="flex: 1; display:flex; flex-direction:column;">
+            <h3 style="margin-top:0;">Available Uploads</h3>
+            <p style="font-size: 11px; color: var(--muted); margin-bottom: 10px;">Files uploaded in this session.</p>
+            <div id="attachModalUploads" style="overflow-y:auto; flex:1; border: 1px solid var(--border); padding: 10px; background: #050c11; display: flex; flex-direction: column; gap: 5px;"></div>
+        </div>
+        <div style="flex: 1; display:flex; flex-direction:column;">
+            <h3 style="margin-top:0;">Previous Artifacts</h3>
+            <p style="font-size: 11px; color: var(--muted); margin-bottom: 10px;">Artifacts generated by Loa in this session.</p>
+            <div id="attachModalArtifacts" style="overflow-y:auto; flex:1; border: 1px solid var(--border); padding: 10px; background: #050c11; display: flex; flex-direction: column; gap: 5px;"></div>
+        </div>
+      </div>
+      <div class="modal-actions" style="margin-top: 20px;">
+        <button id="addSelectedAttachmentsBtn" class="primary" type="button">ADD SELECTED</button>
+      </div>
+    </form>
   </dialog>
 
   <script src="/vis-network.min.js"></script>

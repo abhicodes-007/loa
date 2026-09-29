@@ -48,6 +48,29 @@ func buildContext(root string, cfg config.Config, snap state.AgentState, step *s
 		mandatory.WriteByte('\n')
 	}
 
+	if len(snap.ActiveAttachments) > 0 {
+		mandatory.WriteString("\nUSER ATTACHMENTS (Read-Only):\n")
+		for _, att := range snap.ActiveAttachments {
+			readOnly := false
+			if att.Type == state.AttachmentTypeUpload {
+				for _, up := range snap.Uploads {
+					if up.ID == att.ID {
+						readOnly = up.ReadOnly
+						break
+					}
+				}
+			} else {
+				readOnly = true
+			}
+			if readOnly {
+				fmt.Fprintf(&mandatory, "- [READ ONLY] %s\n", att.VirtualPath)
+			} else {
+				fmt.Fprintf(&mandatory, "- %s\n", att.VirtualPath)
+			}
+		}
+		mandatory.WriteByte('\n')
+	}
+
 	// Approximate token accounting.
 	buffer := cfg.ContextBudget / 20
 	if buffer < cfg.ContextMinimumBuffer {

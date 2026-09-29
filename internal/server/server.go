@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"net/http"
@@ -88,6 +89,12 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/memory/edit", s.writeGuard(s.handleMemoryEdit))
 	mux.HandleFunc("POST /api/memory/delete", s.writeGuard(s.handleMemoryDelete))
 	mux.HandleFunc("POST /api/memory/purge", s.writeGuard(s.handleMemoryPurge))
+	mux.HandleFunc("POST /api/upload", s.writeGuard(s.handleUpload))
+	mux.HandleFunc("POST /api/upload/delete", s.writeGuard(s.handleUploadDelete))
+	mux.HandleFunc("POST /api/upload/readonly", s.writeGuard(s.handleUploadReadOnly))
+	mux.HandleFunc("GET /api/upload/{id}/download", s.handleUploadDownload)
+	mux.HandleFunc("POST /api/attach", s.writeGuard(s.handleAttach))
+	mux.HandleFunc("POST /api/attach/delete", s.writeGuard(s.handleAttachDelete))
 	mux.HandleFunc("GET /api/artifact", s.handleArtifactContent)
 	sub, _ := fs.Sub(webAssets, "web")
 	mux.Handle("/", http.FileServer(http.FS(sub)))
@@ -110,8 +117,8 @@ func (s *Server) writeGuard(next http.HandlerFunc) http.HandlerFunc {
 			writeErr(w, http.StatusForbidden, "invalid local session token")
 			return
 		}
-		if ct := r.Header.Get("Content-Type"); r.ContentLength > 0 && !strings.HasPrefix(ct, "application/json") {
-			writeErr(w, http.StatusUnsupportedMediaType, "application/json required")
+		if ct := r.Header.Get("Content-Type"); r.ContentLength > 0 && !strings.HasPrefix(ct, "application/json") && !strings.HasPrefix(ct, "multipart/form-data") {
+			writeErr(w, http.StatusUnsupportedMediaType, "application/json or multipart/form-data required")
 			return
 		}
 		next(w, r)
@@ -752,4 +759,226 @@ func (s *Server) handleTestLLM(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
+}
+
+func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
+	err := r.ParseMultipartForm(32 << 20)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "failed to parse multipart form")
+		return
+	}
+
+	files := r.MultipartForm.File["files"]
+	if len(files) == 0 {
+		writeErr(w, http.StatusBadRequest, "no files provided")
+		return
+	}
+
+	var results []state.UploadState
+	sessionID := s.store.Snapshot().SessionID
+	uploadDir := filepath.Join(s.root, ".loa", "uploads", sessionID)
+	os.MkdirAll(uploadDir, 0755)
+
+	for _, fileHeader := range files {
+		file, err := fileHeader.Open()
+		if err != nil {
+			continue
+		}
+		
+		id := fmt.Sprintf("up_%d", time.Now().UnixNano())
+		safeFilename := filepath.Base(fileHeader.Filename)
+		destPath := filepath.Join(uploadDir, fmt.Sprintf("%s_%s", id, safeFilename))
+		
+		dest, err := os.Create(destPath)
+		if err != nil {
+			file.Close()
+			continue
+		}
+		
+		io.Copy(dest, file)
+		dest.Close()
+		file.Close()
+
+		upload := state.UploadState{
+			ID:           id,
+			Filename:     safeFilename,
+			OriginalPath: destPath,
+			ReadOnly:     true,
+			CreatedAt:    time.Now(),
+		}
+		s.store.AddUpload(upload)
+		results = append(results, upload)
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "uploads": results})
+}
+
+func (s *Server) handleUploadDelete(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		ID string `json:"id"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	
+	snap := s.store.Snapshot()
+	for _, up := range snap.Uploads {
+		if up.ID == in.ID {
+			os.Remove(up.OriginalPath)
+			break
+		}
+	}
+	s.store.DeleteUpload(in.ID)
+
+	// Also remove from attachments if it's currently attached
+	for _, att := range snap.ActiveAttachments {
+		if att.Type == state.AttachmentTypeUpload && att.ID == in.ID {
+			fullPath := filepath.Join(s.root, att.VirtualPath)
+			os.Remove(fullPath)
+			s.store.RemoveActiveAttachment(att.ID)
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) handleUploadReadOnly(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		ID       string `json:"id"`
+		ReadOnly bool   `json:"read_only"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	
+	s.store.UpdateUpload(in.ID, func(up *state.UploadState) {
+		up.ReadOnly = in.ReadOnly
+	})
+	
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) handleUploadDownload(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		http.Error(w, "missing id", http.StatusBadRequest)
+		return
+	}
+	
+	snap := s.store.Snapshot()
+	var masterPath string
+	var filename string
+	for _, up := range snap.Uploads {
+		if up.ID == id {
+			masterPath = up.OriginalPath
+			filename = up.Filename
+			break
+		}
+	}
+	
+	if masterPath == "" {
+		http.Error(w, "upload not found", http.StatusNotFound)
+		return
+	}
+	
+	w.Header().Set("Content-Disposition", "attachment; filename=\""+filename+"\"")
+	http.ServeFile(w, r, masterPath)
+}
+
+func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		IDs  []string `json:"ids"`
+		Type string   `json:"type"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+
+	sessionID := s.store.Snapshot().SessionID
+	attachDir := filepath.Join(s.root, ".loa", "attachments", sessionID)
+	os.MkdirAll(attachDir, 0755)
+
+	snap := s.store.Snapshot()
+	var attached []state.AttachmentState
+	
+	for _, id := range in.IDs {
+		var sourcePath string
+		var filename string
+		var attType state.AttachmentType
+		var exists bool
+
+		for _, a := range snap.ActiveAttachments {
+			if a.ID == id {
+				exists = true
+				break
+			}
+		}
+		if exists {
+			continue
+		}
+
+		if in.Type == "upload" {
+			for _, up := range snap.Uploads {
+				if up.ID == id {
+					sourcePath = up.OriginalPath
+					filename = up.Filename
+					attType = state.AttachmentTypeUpload
+					break
+				}
+			}
+		} else if in.Type == "artifact" {
+			sourcePath = filepath.Join(s.root, id)
+			filename = filepath.Base(id)
+			attType = state.AttachmentTypeArtifact
+		}
+
+		if sourcePath == "" {
+			continue
+		}
+
+		destPath := filepath.Join(attachDir, filename)
+		sourceFile, err := os.Open(sourcePath)
+		if err != nil {
+			continue
+		}
+		
+		destFile, err := os.Create(destPath)
+		if err == nil {
+			io.Copy(destFile, sourceFile)
+			destFile.Close()
+		}
+		sourceFile.Close()
+
+		att := state.AttachmentState{
+			ID:          id,
+			VirtualPath: filepath.Join(".loa", "attachments", sessionID, filename),
+			Type:        attType,
+			CreatedAt:   time.Now(),
+		}
+		s.store.AddActiveAttachment(att)
+		attached = append(attached, att)
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "attached": attached})
+}
+
+func (s *Server) handleAttachDelete(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		ID string `json:"id"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+
+	snap := s.store.Snapshot()
+	for _, att := range snap.ActiveAttachments {
+		if att.ID == in.ID {
+			fullPath := filepath.Join(s.root, att.VirtualPath)
+			os.Remove(fullPath)
+			break
+		}
+	}
+
+	s.store.RemoveActiveAttachment(in.ID)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
