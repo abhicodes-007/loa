@@ -447,7 +447,7 @@ func (s *Server) handleSetupProject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	go func(purpose string) {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		s.agent.LockSystemTask("indexing")
 		if purpose != "" {

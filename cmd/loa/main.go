@@ -90,7 +90,7 @@ func main() {
 		eng.SetNeedsProjectSetup(true)
 		log.Printf("boot scan skipped: project needs setup")
 	} else if c.ModelCrawling != "" && c.EmbeddingModel != "" {
-		bootCtx, cancelBoot := context.WithTimeout(context.Background(), 10*time.Minute)
+		bootCtx, cancelBoot := context.WithCancel(context.Background())
 		if err := eng.BootScan(bootCtx); err != nil {
 			log.Printf("boot scan encountered errors: %v", err)
 		}
