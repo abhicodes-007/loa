@@ -308,21 +308,45 @@ type RuntimeStats struct {
 	InferenceByPrimitive map[string]uint64 `json:"inference_by_primitive,omitempty"`
 }
 
+type UploadState struct {
+	ID           string    `json:"id"`
+	Filename     string    `json:"filename"`
+	OriginalPath string    `json:"original_path,omitempty"`
+	ReadOnly     bool      `json:"read_only"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+type AttachmentType string
+
+const (
+	AttachmentTypeUpload   AttachmentType = "upload"
+	AttachmentTypeArtifact AttachmentType = "artifact"
+)
+
+type AttachmentState struct {
+	ID          string         `json:"id"` // Either Upload ID or Artifact Path
+	VirtualPath string         `json:"virtual_path"`
+	Type        AttachmentType `json:"type"`
+	CreatedAt   time.Time      `json:"created_at"`
+}
+
 type AgentState struct {
-	Version         int                 `json:"version"`
-	SessionID       string              `json:"session_id,omitempty"`
-	SessionTitle    string              `json:"session_title,omitempty"`
-	CreatedAt       time.Time           `json:"created_at,omitempty"`
-	UpdatedAt       time.Time           `json:"updated_at,omitempty"`
-	Messages        []Message           `json:"messages"`
-	ExecutionLog    []ExecutionLogEntry `json:"execution_log"`
-	ToolCalls       []ToolCall          `json:"tool_calls"`
-	ToolResults     []ToolResult        `json:"tool_results"`
-	CompletedTasks  []TaskState         `json:"completed_tasks"`
-	ActiveTask      *TaskState          `json:"active_task,omitempty"`
-	PendingQuestion *PendingQuestion    `json:"pending_question,omitempty"`
-	NextID          uint64              `json:"next_id"`
-	Sequence        uint64              `json:"sequence"`
+	Version           int                 `json:"version"`
+	SessionID         string              `json:"session_id,omitempty"`
+	SessionTitle      string              `json:"session_title,omitempty"`
+	CreatedAt         time.Time           `json:"created_at,omitempty"`
+	UpdatedAt         time.Time           `json:"updated_at,omitempty"`
+	Messages          []Message           `json:"messages"`
+	ExecutionLog      []ExecutionLogEntry `json:"execution_log"`
+	ToolCalls         []ToolCall          `json:"tool_calls"`
+	ToolResults       []ToolResult        `json:"tool_results"`
+	CompletedTasks    []TaskState         `json:"completed_tasks"`
+	ActiveTask        *TaskState          `json:"active_task,omitempty"`
+	PendingQuestion   *PendingQuestion    `json:"pending_question,omitempty"`
+	Uploads           []UploadState       `json:"uploads,omitempty"`
+	ActiveAttachments []AttachmentState   `json:"active_attachments,omitempty"`
+	NextID            uint64              `json:"next_id"`
+	Sequence          uint64              `json:"sequence"`
 }
 
 func NewAgentState() *AgentState {

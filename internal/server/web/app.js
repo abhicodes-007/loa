@@ -493,6 +493,8 @@
     renderWorkingMemory(st.active_task, x.memory || [], rt.last_context || '');
     renderMemory(x.memory || [], x.task_summaries || []);
     renderLog(st.execution_log || []);
+    renderUploads(st.uploads || []);
+    renderAttachments(st.active_attachments || []);
     renderSessions(sessions, rt, st);
     renderPersistence(persistence, sessions);
     maybeAutosaveToast(persistence);
@@ -2026,6 +2028,287 @@
   // Ensure initial states are set
   updateSyncUI();
   updateSetupSyncUI();
+
+  // Attachments and Uploads logic
+  function renderUploads(uploads) {
+    const listEl = $('#uploadListContainer');
+    if (!listEl) return;
+    if (!uploads || uploads.length === 0) {
+      listEl.innerHTML = '<div class="empty">No files uploaded yet</div>';
+      return;
+    }
+
+    listEl.innerHTML = '';
+    uploads.forEach(up => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex; justify-content:space-between; align-items:center; padding:8px; border-bottom:1px solid var(--border);';
+      
+      const left = document.createElement('div');
+      left.style.cssText = 'display:flex; flex-direction:column;';
+      left.innerHTML = `<span style="font-weight:bold; font-size:12px;">${up.filename}</span>
+                        <span style="font-size:10px; color:var(--muted);">${new Date(up.created_at).toLocaleString()}</span>`;
+      
+      const right = document.createElement('div');
+      right.style.cssText = 'display:flex; gap: 8px; align-items:center;';
+      
+      const roLabel = document.createElement('label');
+      roLabel.style.cssText = 'font-size:10px; display:flex; align-items:center; gap:4px; cursor:pointer; color:var(--text);';
+      const roCheck = document.createElement('input');
+      roCheck.type = 'checkbox';
+      roCheck.checked = up.read_only;
+      roCheck.onchange = () => toggleUploadReadOnly(up.id, roCheck.checked);
+      roLabel.appendChild(roCheck);
+      roLabel.append(' READ_ONLY');
+      
+      const dlBtn = document.createElement('a');
+      dlBtn.className = 'icon-btn';
+      dlBtn.style.cssText = 'color:var(--cyan); border:1px solid var(--line); background:var(--bg); cursor:pointer; font-size:12px; padding:2px 6px; text-decoration: none;';
+      dlBtn.innerText = '↓';
+      dlBtn.href = '/api/upload/' + up.id + '/download';
+      dlBtn.target = '_blank';
+      
+      const delBtn = document.createElement('button');
+      delBtn.className = 'icon-btn';
+      delBtn.style.cssText = 'color:var(--bad); border:1px solid var(--line); background:var(--bg); cursor:pointer; font-size:12px; padding:2px 6px;';
+      delBtn.innerText = '🗑';
+      delBtn.onclick = () => deleteUpload(up.id);
+      
+      right.appendChild(roLabel);
+      right.appendChild(dlBtn);
+      right.appendChild(delBtn);
+      
+      row.appendChild(left);
+      row.appendChild(right);
+      listEl.appendChild(row);
+    });
+  }
+
+  function renderAttachments(attachments) {
+    const countEl = $('#attachmentsCount');
+    const listEl = $('#activeAttachmentsList');
+    if (!countEl || !listEl) return;
+    
+    countEl.innerText = `📎 ${attachments.length}`;
+    
+    if (attachments.length === 0) {
+      listEl.innerHTML = '<div class="muted" style="font-size:11px; text-align:center;">No active attachments</div>';
+      return;
+    }
+    
+    listEl.innerHTML = '';
+    attachments.forEach(att => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex; justify-content:space-between; align-items:center; padding:4px 8px; border:1px solid var(--border); margin-bottom:4px; border-radius:4px; background:var(--bg);';
+      
+      const nameParts = att.virtual_path.split('/');
+      const name = nameParts[nameParts.length - 1];
+      
+      const nameSpan = document.createElement('span');
+      nameSpan.style.cssText = 'font-size:11px; font-family:var(--mono); text-overflow:ellipsis; overflow:hidden; white-space:nowrap;';
+      nameSpan.innerText = name;
+      
+      const delBtn = document.createElement('button');
+      delBtn.innerText = '×';
+      delBtn.title = 'Detach';
+      delBtn.style.cssText = 'background:transparent; border:none; color:var(--bad); cursor:pointer; padding:0 4px; font-weight:bold; font-size:14px;';
+      delBtn.onclick = () => detachFile(att.id);
+      
+      row.appendChild(nameSpan);
+      row.appendChild(delBtn);
+      listEl.appendChild(row);
+    });
+  }
+
+  async function handleFileUpload(files, autoAttach = false) {
+    if (!files || files.length === 0) return;
+    
+    const formData = new FormData();
+    for (let i = 0; i < files.length; i++) {
+      formData.append('files', files[i]);
+    }
+    
+    try {
+      const res = await fetch('/api/upload', {
+        method: 'POST',
+        headers: { 'X-Loa-Token': token },
+        body: formData
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      toast(`Uploaded ${data.uploads.length} file(s)`);
+      
+      if (autoAttach) {
+        const ids = data.uploads.map(u => u.id);
+        await attachFiles(ids, 'upload');
+      }
+    } catch (e) {
+      toast(e.message, true);
+    }
+  }
+
+  async function toggleUploadReadOnly(id, readOnly) {
+    try {
+      const res = await fetch('/api/upload/readonly', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Loa-Token': token },
+        body: JSON.stringify({ id, read_only: readOnly })
+      });
+      if (!res.ok) throw new Error(await res.text());
+    } catch (e) {
+      toast(e.message, true);
+    }
+  }
+
+  async function deleteUpload(id) {
+    if (!confirm('Are you sure you want to delete this upload?')) return;
+    try {
+      const res = await fetch('/api/upload/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Loa-Token': token },
+        body: JSON.stringify({ id })
+      });
+      if (!res.ok) throw new Error(await res.text());
+    } catch (e) {
+      toast(e.message, true);
+    }
+  }
+
+  async function attachFiles(ids, type) {
+    try {
+      const res = await fetch('/api/attach', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Loa-Token': token },
+        body: JSON.stringify({ ids, type })
+      });
+      if (!res.ok) throw new Error(await res.text());
+    } catch (e) {
+      toast(e.message, true);
+    }
+  }
+
+  async function detachFile(id) {
+    try {
+      const res = await fetch('/api/attach/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Loa-Token': token },
+        body: JSON.stringify({ id })
+      });
+      if (!res.ok) throw new Error(await res.text());
+    } catch (e) {
+      toast(e.message, true);
+    }
+  }
+
+  $('#uploadBtn')?.addEventListener('click', () => $('#uploadInput').click());
+  $('#uploadInput')?.addEventListener('change', (e) => {
+    handleFileUpload(e.target.files, false);
+    e.target.value = '';
+  });
+
+  $('#chatUploadBtn')?.addEventListener('click', () => $('#chatUploadInput').click());
+  $('#chatUploadInput')?.addEventListener('change', (e) => {
+    handleFileUpload(e.target.files, true);
+    e.target.value = '';
+  });
+
+  $('.attachments-header')?.addEventListener('click', (e) => {
+    const p = $('#attachmentsOverlay');
+    if (p.classList.contains('collapsed')) {
+      p.classList.remove('collapsed');
+      $('#attachmentsContent').style.display = 'block';
+      $('#attachmentsToggleIcon').innerText = '▲';
+    } else {
+      p.classList.add('collapsed');
+      $('#attachmentsContent').style.display = 'none';
+      $('#attachmentsToggleIcon').innerText = '▼';
+    }
+  });
+
+  $('#openAttachModalBtn')?.addEventListener('click', () => {
+    if (!$('#attachModal').open) {
+      populateAttachModal();
+      $('#attachModal').showModal();
+    }
+  });
+  $('#closeAttachModal')?.addEventListener('click', () => $('#attachModal').close());
+
+  function populateAttachModal() {
+    const uploadsContainer = $('#attachModalUploads');
+    const artifactsContainer = $('#attachModalArtifacts');
+    uploadsContainer.innerHTML = '';
+    artifactsContainer.innerHTML = '';
+    
+    if (snapshot && snapshot.state && snapshot.state.uploads) {
+      snapshot.state.uploads.forEach(up => {
+        const label = document.createElement('label');
+        label.style.cssText = 'display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:4px; border:1px solid transparent;';
+        label.onmouseenter = () => label.style.borderColor = 'var(--border)';
+        label.onmouseleave = () => label.style.borderColor = 'transparent';
+        
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.value = up.id;
+        cb.dataset.type = 'upload';
+        
+        const name = document.createElement('span');
+        name.innerText = up.filename;
+        name.style.flex = 1;
+        
+        label.appendChild(cb);
+        label.appendChild(name);
+        uploadsContainer.appendChild(label);
+      });
+    }
+
+    if (snapshot && snapshot.artifacts) {
+      const taskIds = Object.keys(snapshot.artifacts).map(Number).sort((a, b) => b - a);
+      taskIds.forEach(tid => {
+        const h = document.createElement('div');
+        h.innerText = 'Task ' + tid;
+        h.style.cssText = 'font-size:10px; color:var(--cyan); margin-top:10px; font-weight:bold;';
+        artifactsContainer.appendChild(h);
+
+        snapshot.artifacts[tid].forEach(file => {
+          const path = `.loa/artifacts/${activeSessionID}/task-${tid}/${file}`;
+          const label = document.createElement('label');
+          label.style.cssText = 'display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:4px; border:1px solid transparent;';
+          label.onmouseenter = () => label.style.borderColor = 'var(--border)';
+          label.onmouseleave = () => label.style.borderColor = 'transparent';
+          
+          const cb = document.createElement('input');
+          cb.type = 'checkbox';
+          cb.value = path;
+          cb.dataset.type = 'artifact';
+          
+          const name = document.createElement('span');
+          name.innerText = file;
+          
+          label.appendChild(cb);
+          label.appendChild(name);
+          artifactsContainer.appendChild(label);
+        });
+      });
+    }
+  }
+
+  $('#addSelectedAttachmentsBtn')?.addEventListener('click', async () => {
+    const checked = $$('#attachModal input[type="checkbox"]:checked');
+    const uploadIds = [];
+    const artifactIds = [];
+    checked.forEach(cb => {
+      if (cb.dataset.type === 'upload') uploadIds.push(cb.value);
+      if (cb.dataset.type === 'artifact') artifactIds.push(cb.value);
+    });
+    
+    if (uploadIds.length > 0) {
+      await attachFiles(uploadIds, 'upload');
+    }
+    if (artifactIds.length > 0) {
+      await attachFiles(artifactIds, 'artifact');
+    }
+    
+    $('#attachModal').close();
+  });
 
   bootstrap().catch(e => toast(e.message, true));
 })();

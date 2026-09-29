@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -136,6 +137,10 @@ func (e *Engine) StartWatcher(ctx context.Context) error {
 					if strings.Contains(filepath.Base(event.Name), ".loa-write-") {
 						continue
 					}
+					if strings.Contains(event.Name, string(filepath.Separator)+".loa"+string(filepath.Separator)+"attachments"+string(filepath.Separator)) {
+						go e.healAttachment(event.Name)
+						continue
+					}
 					timerMu.Lock()
 					events[event.Name] = true
 					if timer != nil {
@@ -172,4 +177,67 @@ func (e *Engine) StartWatcher(ctx context.Context) error {
 
 	e.log(state.LogSystem, "Watcher", "started OS file watcher", "", "")
 	return nil
+}
+
+func (e *Engine) healAttachment(path string) {
+	snap := e.store.Snapshot()
+	filename := filepath.Base(path)
+	
+	var masterPath string
+	var readOnly bool
+	for _, att := range snap.ActiveAttachments {
+		if filepath.Base(att.VirtualPath) == filename {
+			if att.Type == state.AttachmentTypeUpload {
+				for _, up := range snap.Uploads {
+					if up.ID == att.ID {
+						masterPath = up.OriginalPath
+						readOnly = up.ReadOnly
+						break
+					}
+				}
+			} else {
+				masterPath = filepath.Join(e.root, att.ID)
+				readOnly = true // Artifacts are always read-only
+			}
+			break
+		}
+	}
+	
+	if masterPath == "" {
+		return 
+	}
+	
+	if readOnly {
+		// Revert: Master -> Sandbox
+		sourceFile, err := os.Open(masterPath)
+		if err != nil {
+			return
+		}
+		defer sourceFile.Close()
+		
+		destFile, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
+		if err != nil {
+			return
+		}
+		defer destFile.Close()
+		
+		io.Copy(destFile, sourceFile)
+		e.log(state.LogSystem, "Watcher", "auto-healed read-only attachment modified by agent", filename, "")
+	} else {
+		// Sync: Sandbox -> Master
+		sourceFile, err := os.Open(path)
+		if err != nil {
+			return
+		}
+		defer sourceFile.Close()
+		
+		destFile, err := os.OpenFile(masterPath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
+		if err != nil {
+			return
+		}
+		defer destFile.Close()
+		
+		io.Copy(destFile, sourceFile)
+		e.log(state.LogSystem, "Watcher", "synced writable attachment changes to master upload", filename, "")
+	}
 }

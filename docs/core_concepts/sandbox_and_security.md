@@ -40,3 +40,18 @@ loa -addr 0.0.0.0:8104 .
 
 > **[WARNING]**
 > Running in Host mode means `execute_shell` commands run with your user privileges. A hallucinated `rm -rf *` in the wrong directory, or a malicious script downloaded by the agent, could compromise your machine. Use Host mode strictly with `Permission Mode: ask_all` enabled in the settings.
+
+## Attachment Sandboxing & Bi-Directional Sync
+
+When you upload external files to a session and attach them via the chat interface, Loa utilizes an ephemeral sandboxing mechanism within the `.loa` directory to manage file state safely.
+
+### The Ephemeral Sandbox
+Instead of directly exposing your original uploaded files to the agent, attached files are physically cloned into a temporary `.loa/attachments/<session_id>/` directory. The agent interacts with these clones, believing them to be standard local files in its workspace.
+
+### The `fsnotify` Watcher (Resilience Mechanism) (manually uploaded files only)
+To maintain the integrity of your files while allowing dynamic edits, the Loa engine runs a background filesystem watcher on the ephemeral sandbox. 
+- **Auto-Heal (Read-Only):** If you mark an upload as `READ_ONLY` and the agent mistakenly alters it, the watcher instantly overwrites the sandbox file using the pristine master copy stored in `.loa/uploads/`. This completely neutralizes the unauthorized change.
+- **Auto-Sync (Writable):** If the file is permitted to be altered, the watcher operates in reverse. It takes the agent's sandbox changes and instantly syncs them back to the original `.loa/uploads/` directory. This preserves the agent's work permanently, ensuring changes aren't lost when the file is detached or the session ends.
+
+> **[NOTE]**
+> **Resilience, not absolute security:** While the `fsnotify` watch-and-copy trick prevents accidental data loss or hallucinated overwrites during normal execution, it is not an impermeable security boundary. Because the ephemeral sandbox and the master `.loa/uploads/` directory both physically reside inside the mounted `/workspace`, an actively malicious agent (or a malicious downloaded script) could theoretically traverse the file system, discover the hidden `.loa` directory, and modify the master files directly bypassing the watcher. This mechanism is designed for workflow resilience and state preservation, not strict cryptographic isolation.

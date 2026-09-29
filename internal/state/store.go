@@ -498,6 +498,61 @@ func (st *Store) SetPendingQuestion(q *PendingQuestion) {
 	st.markDirtyLocked()
 }
 
+func (st *Store) AddUpload(u UploadState) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	st.s.Uploads = append(st.s.Uploads, u)
+	st.markDirtyLocked()
+}
+
+func (st *Store) UpdateUpload(id string, fn func(*UploadState)) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	for i := range st.s.Uploads {
+		if st.s.Uploads[i].ID == id {
+			fn(&st.s.Uploads[i])
+			st.markDirtyLocked()
+			return
+		}
+	}
+}
+
+func (st *Store) DeleteUpload(id string) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	for i := range st.s.Uploads {
+		if st.s.Uploads[i].ID == id {
+			st.s.Uploads = append(st.s.Uploads[:i], st.s.Uploads[i+1:]...)
+			st.markDirtyLocked()
+			return
+		}
+	}
+}
+
+func (st *Store) AddActiveAttachment(a AttachmentState) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	for _, existing := range st.s.ActiveAttachments {
+		if existing.ID == a.ID {
+			return // Already attached
+		}
+	}
+	st.s.ActiveAttachments = append(st.s.ActiveAttachments, a)
+	st.markDirtyLocked()
+}
+
+func (st *Store) RemoveActiveAttachment(id string) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	for i := range st.s.ActiveAttachments {
+		if st.s.ActiveAttachments[i].ID == id {
+			st.s.ActiveAttachments = append(st.s.ActiveAttachments[:i], st.s.ActiveAttachments[i+1:]...)
+			st.markDirtyLocked()
+			return
+		}
+	}
+}
+
 func (st *Store) markDirtyLocked() {
 	if st.s != nil {
 		st.s.Sequence++

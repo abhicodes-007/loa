@@ -1,4 +1,4 @@
 package version
 
 // String is the current version of Loa
-const String = "0.2.1-beta"
+const String = "0.4.0-beta"
