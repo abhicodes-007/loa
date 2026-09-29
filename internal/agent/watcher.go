@@ -133,6 +133,9 @@ func (e *Engine) StartWatcher(ctx context.Context) error {
 				}
 
 				if event.Op&(fsnotify.Write|fsnotify.Create) != 0 {
+					if strings.Contains(filepath.Base(event.Name), ".loa-write-") {
+						continue
+					}
 					timerMu.Lock()
 					events[event.Name] = true
 					if timer != nil {
