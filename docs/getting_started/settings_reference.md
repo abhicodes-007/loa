@@ -12,9 +12,13 @@ This guide breaks down each of the 5 configuration tabs to help you optimize Loa
 This tab defines the foundational connection to your AI provider (e.g., Ollama).
 - **API Base URL & Key:** The endpoint where your LLM is hosted.
 - **Role-Specific Models:** Loa can route different types of cognitive tasks to different models. For example, you might want a massive, slow model for **Planning**, but a smaller, lightning-fast model for **Crawling** and **Executing**. 
+  - *Note:* The "Conversation" model role is specifically used as the **Analysis/Background Model**. It powers the lightweight background primitives (e.g., assessing blind execution limits, determining intents), making it crucial for fast background decision-making.
 - **Use one model for all inferences:** If checked, this forces Loa to use your primary model for all tasks, ignoring the individual dropdowns.
 - **Embedding Model:** Defines the model used to vectorize your codebase for semantic search. **This must be a dedicated embedding model (e.g., `nomic-embed-text`)!**
-- **Timeouts & Loops:** Set hard circuit-breakers to prevent the agent from getting stuck in an infinite loop or hanging indefinitely if your API server drops a connection.
+- **Execution Limits & Evaluation:**
+  - **Evaluation Mode:** Choose between *Strict* (evaluates every step) and *Dynamic* (allows the agent to execute tightly coupled actions "blindly" for speed).
+  - **Blind Action Threshold:** When in Dynamic mode, this dictates the maximum number of consecutive steps Loa can execute blindly before the background supervisor LLM forces a deep evaluation.
+  - **Timeouts & Loops:** Set hard circuit-breakers to prevent the agent from getting stuck in an infinite loop or hanging indefinitely if your API server drops a connection.
 
 ## 2. File Indexing & Tools
 *(Control how Loa reads and crawls your codebase)*

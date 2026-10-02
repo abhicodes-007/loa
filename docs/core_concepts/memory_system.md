@@ -27,6 +27,8 @@ Memory does not spontaneously migrate; it follows a strict lifecycle tied to the
 3. **Reflection (Distillation):** Upon completing a plan step, the engine invokes `PrimitiveEvaluateStepResult` and `PrimitiveExtractStepResult`. These primitives compress massive tool outputs into dense summaries, preferring original evidence over lossy context summarization.
 4. **Extraction (Semantic Promotion):** During the transition between steps or at the end of a task, `PrimitiveExtractDurableMemory` scans the session history. Working memory is not simply dumped wholesale into longer-term memory. Loa consolidates useful semantic state (hard architectural constraints or recurring bugs) and discards episodic execution noise, persisting it to `.loa/project_memory.json`.
 
+**Note on Fast Mode:** Fast Mode intentionally skips formal DAG planning (Step 3). When a Fast Mode loop finishes, it calls a shared `finalizeTaskMemory` sequence. This ensures that even quick, 1-shot queries and edits leave durable breadcrumbs and facts in your **Session Memory**, allowing deep conversational continuity to persist across rapid operations without necessarily polluting long-term project memory.
+
 ## Token Limits and Context Sliding
 
 If an execution loop generates excessive output (e.g., an uncontrolled `cat` on a massive log file or a massive test failure), the Session Memory could breach the model's token limits. 

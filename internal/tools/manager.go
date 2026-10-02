@@ -974,20 +974,26 @@ func (m *Manager) analyzeLargeFile(ctx context.Context, rel, instructions string
 	return summary, nil, nil
 }
 
-func ToolSchema() string {
-	return `read_file {"path":"relative/path"}
+func ToolSchema(readOnly bool) string {
+	schema := `read_file {"path":"relative/path"}
 read_range {"path":"relative/path","start":1,"end":120}
 search_path {"query":"name fragment","limit":100}
 search_text {"pattern":"text or regex","regex":false,"limit":100}
 find_symbol {"query":"SymbolName","limit":30}
 list_symbols {"path":"relative/source.go"}
-read_ast_node {"path":"relative/source.go","rule":"{pattern: 'func $NAME() { $$$BODY }'}"}
+read_ast_node {"path":"relative/source.go","rule":"{pattern: 'func $NAME() { $$$BODY }'}"}`
+
+	if !readOnly {
+		schema += `
 write_file {"path":"relative/path","content":"complete file content"}
 patch_file {"path":"relative/path","old":"exact old text","new":"replacement","replace_all":false}
 patch_ast_node {"path":"relative/source.go","rule":"{pattern: 'func $NAME() { $$$BODY }'}","rewrite":"func $NAME() error { return nil }"}
 create_directory {"path":"relative/path"}
 delete_file {"path":"relative/path"}
-delete_directory {"path":"relative/path"}
+delete_directory {"path":"relative/path"}`
+	}
+
+	schema += `
 execute_process {"binary":"go","args":["test","./..."],"timeout_seconds":0}
 execute_shell {"command":"go test ./... | tee test.log","timeout_seconds":0}
 git_status {}
@@ -995,13 +1001,21 @@ git_diff {"staged":false}
 read_tool_output {"tool_call_id":123,"offset":0,"limit":16384}
 analyze_large_file {"path":"relative/path","instructions":"flat string without nested JSON objects"}
 artifact_list {}
-artifact_read {"name":"filename.md","start_line":0,"end_line":0}
+artifact_read {"name":"filename.md","start_line":0,"end_line":0}`
+
+	if !readOnly {
+		schema += `
 artifact_write {"name":"filename.md","content":"complete content"}
 artifact_append {"name":"filename.md","content":"content to append"}
-artifact_patch {"name":"filename.md","old":"exact old text","new":"replacement","replace_all":false}
+artifact_patch {"name":"filename.md","old":"exact old text","new":"replacement","replace_all":false}`
+	}
+
+	schema += `
 artifact_search {"query":"search text"}
 search_task_steps {}
 read_task_step {"step_id":123}`
+
+	return schema
 }
 
 func ParseInt(v any) int {

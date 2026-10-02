@@ -111,7 +111,7 @@ func TestSimpleTaskLifecycle(t *testing.T) {
 	}
 	tm := tools.New(root, nil, cfg.Get, nil)
 	fake := &scriptedLLM{text: "Implemented and verified.", json: []string{
-		`{"intents":["task"],"answers_pending_question":false,"may_investigate":true,"may_modify":true,"ambiguous":false,"reason":"explicit task"}`,
+		`{"intents":["task"],"answers_pending_question":false,"ambiguous":false,"reason":"explicit task"}`,
 		`{"items":[]}`,
 		`{"criteria":["The requested change is completed and verified."],"reason":"captures the requested outcome"}`,
 		`{"mappings":[]}`,
@@ -556,8 +556,9 @@ func TestReadOnlyTaskUsesStructuredTaskLifecycle(t *testing.T) {
 	if _, err := st.CreateSession("Read only task"); err != nil {
 		t.Fatal(err)
 	}
+	st.SetSessionModes("", "", true)
 	fake := &scriptedLLM{text: "Analysis complete.", json: []string{
-		`{"intents":["task"],"answers_pending_question":false,"may_investigate":true,"may_modify":false,"ambiguous":false,"reason":"structured read-only analysis"}`,
+		`{"intents":["task"],"answers_pending_question":false,"ambiguous":false,"reason":"structured read-only analysis"}`,
 		`{"items":[]}`,
 		`{"criteria":["The project architecture is analyzed from source code."],"reason":"captures the requested read-only outcome"}`,
 		`{"mappings":[]}`,

@@ -7,7 +7,7 @@ Loa configuration is entirely managed locally and saved to your project's `.loa/
 - **LLM Base URL** (`ollama_url`): The endpoint for your local OpenAI-compatible inference server (e.g., `http://127.0.0.1:11434/v1` for Ollama).
 - **LLM Token** (`api_key`): API key if required by your inference server (can be left blank for local Ollama instances).
 - **Model Crawling** (`model_crawling`): The specific model string to use for initial project crawling.
-- **Model Conversation** (`model_conversation`): The specific model string to use for chat interactions.
+- **Analysis/Background Model** (`model_conversation`): Used for lightweight, analytical background primitives (e.g., assessing blind execution limits, determining intents, synthesizing tasks). 
 - **Model Planning** (`model_planning`): The model used for DAG plan generation.
 - **Model Executing** (`model_executing`): The primary model used to execute tool calls in the loop.
 - **Embedding Model** (`embedding_model`): The model used for vector generation.
@@ -21,6 +21,8 @@ Loa configuration is entirely managed locally and saved to your project's `.loa/
 
 ## Pipeline & Flow Control
 
+- **Evaluation Mode** (`evaluation_mode`): Determines how strictly Loa evaluates its progress. Set to `strict` (evaluates every single step against the objective) or `dynamic` (allows the agent to execute tightly coupled changes blindly for speed, monitored by a background LLM supervisor).
+- **Blind Action Threshold** (`blind_action_threshold`): When in dynamic mode, this defines the maximum number of consecutive blind executions the engine can perform before the background supervisor forces a deep evaluation.
 - **Max Execution Loops** (`max_execution_loops`): The maximum number of tool executions/iterations allowed for a single task session before the engine trips the circuit breaker and enters the `PAUSED` state.
 - **Max Plan Depth** (`max_plan_depth`): Maximum allowed depth for nested DAG steps during planning/decomposition.
 - **JSON Repair Attempts** (`json_repair_attempts`): How many times the engine will automatically prompt the LLM to fix a malformed JSON payload before giving up.
@@ -54,7 +56,8 @@ Loa manages the LLM context window explicitly through mathematical token budgets
 - **FS Watcher Debounce (ms)** (`fs_watcher_debounce_ms`): Debounce threshold for the file watcher.
 - **Crawler Small File Threshold** (`crawler_small_file_threshold`): Max lines for a file to be processed wholly without chunking during codebase indexing.
 - **Crawler Max Chunk Lines** (`crawler_max_chunk_lines`): Max lines per chunk when parsing large files.
-- **Max Stored Tool Output (Bytes)** (`max_stored_tool_output_bytes`): Hard limit (default 4MB) for capturing output from shell commands. Outputs exceeding this are truncated to protect token budgets.
+- **Max Stored Tool Output (Bytes)** (`max_stored_tool_output_bytes`): Hard limit (default 4MB) for capturing output from shell commands. Outputs exceeding this are truncated in the DB.
+- **Max Prompt Tool Output Bytes** (`max_prompt_tool_output_bytes`): Limit (default 30,000 bytes) for injecting tool outputs into the LLM context. Outputs exceeding this are automatically spilled over into a readable artifact file, protecting the prompt budget while still allowing the agent to read the full output safely.
 
 ## Permissions
 

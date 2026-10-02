@@ -109,6 +109,11 @@ func (m *Manager) artifactWrite(taskID uint64, name, content string) (string, *i
 	return fmt.Sprintf("Wrote artifact %s (%d bytes)", name, len(content)), nil, nil
 }
 
+func (m *Manager) DumpToArtifact(taskID uint64, name, content string) error {
+	_, _, err := m.artifactWrite(taskID, name, content)
+	return err
+}
+
 func (m *Manager) artifactAppend(taskID uint64, name, content string) (string, *int, error) {
 	path, err := m.resolveArtifact(taskID, name)
 	if err != nil {

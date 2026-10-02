@@ -10,3 +10,5 @@ sandbox/config/
 sandbox/loa-src/
 sandbox/loa-bin
 .idea/
+.loa/
+.loa*

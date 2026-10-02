@@ -56,10 +56,13 @@ type Config struct {
 	MemoryPoolExpansionLimit       int              `json:"memory_pool_expansion_limit"`
 	FSWatcherDebounceMs            int              `json:"fs_watcher_debounce_ms"`
 	MaxStoredToolOutputBytes       int              `json:"max_stored_tool_output_bytes"`
+	MaxPromptToolOutputBytes       int              `json:"max_prompt_tool_output_bytes"`
 	LLMPollingTimeoutSeconds       int              `json:"llm_polling_timeout_seconds"`
 	ServerReadHeaderTimeoutSeconds int              `json:"server_read_header_timeout_seconds"`
 	ProjectInstructions            string           `json:"project_instructions"`
 	Permissions                    PermissionConfig `json:"permissions"`
+	BlindActionThreshold           int              `json:"blind_action_threshold"`
+	EvaluationMode                 string           `json:"evaluation_mode"`
 }
 
 func Default() Config {
@@ -90,8 +93,11 @@ func Default() Config {
 		MemoryPoolExpansionLimit:       4,
 		FSWatcherDebounceMs:            500,
 		MaxStoredToolOutputBytes:       4194304,
+		MaxPromptToolOutputBytes:       30000,
 		LLMPollingTimeoutSeconds:       15,
 		ServerReadHeaderTimeoutSeconds: 10,
+		BlindActionThreshold:           8,
+		EvaluationMode:                 "Immediate",
 		Permissions: PermissionConfig{
 			Mode: PermissionSelected,
 			AskFor: map[state.ToolKind]bool{

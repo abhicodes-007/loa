@@ -71,11 +71,31 @@
 
       <div id="chat" class="chat"></div>
       <div id="chatDivider" class="resizer horizontal" title="Drag to resize chat input"></div>
-      <form id="chatForm" class="composer">
-        <textarea id="messageInput" rows="3" placeholder="Talk to Loa…  Ctrl+Enter to send"></textarea>
-        <div style="display: flex; flex-direction: column; gap: 8px;">
-          <button type="submit" class="primary" style="flex: 1; padding: 0 15px;">SEND</button>
-          <button type="button" id="chatUploadBtn" title="Attach file" style="flex: 1; background: transparent; border: 1px solid var(--line); color: var(--muted); cursor: pointer; display: flex; align-items: center; justify-content: center;">📎</button>
+      <form id="chatForm" class="composer-v2">
+        <div class="composer-input-area">
+          <textarea id="messageInput" placeholder="| TASK PAUSED. RESUME TO CONTINUE."></textarea>
+          <div class="composer-deco"></div>
+        </div>
+        
+        <div class="composer-controls">
+          <div class="segmented-control" title="Speed: Auto lets Loa decide. Planned uses full DAG planning. Fast skips planning for dynamic execution.">
+            <label class="seg-label"><input type="radio" name="complexityModeCtrl" value="Fast" checked><span>Fast</span></label>
+            <label class="seg-label"><input type="radio" name="complexityModeCtrl" value="Auto"><span>Auto</span></label>
+            <label class="seg-label"><input type="radio" name="complexityModeCtrl" value="Planned"><span>Planned</span></label>
+          </div>
+          
+          <div class="controls-row">
+            <label class="toggle-switch" title="Read-Only Mode">
+              <input type="checkbox" id="readOnlyCtrl">
+              <div class="slider"></div>
+              <span class="label-text">READ ONLY</span>
+            </label>
+            <button type="button" id="chatUploadBtn" class="icon-btn" title="Attach file">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
+            </button>
+          </div>
+
+          <button type="submit" class="send-btn">SEND</button>
         </div>
         <input type="file" id="chatUploadInput" multiple style="display:none;">
       </form>
@@ -178,7 +198,7 @@
     </section>
   </main>
 
-  <div id="toast" class="toast"></div>
+  <div id="toast" class="toast" popover="manual"></div>
 
   <dialog id="approvalDialog" class="modal">
     <form method="dialog" class="modal-card">
@@ -254,6 +274,13 @@
             <div id="testSettingsLlmResult" style="margin-top:8px; font-size:12px; text-align:center;"></div>
           </div>
           <label>JSON repair attempts<input id="repairAttempts" type="number" min="1"></label>
+          <label title="Evaluation: Strict evaluates every action. Dynamic lets the agent batch multiple actions.">Evaluation Mode
+            <select id="evaluationModeSettings">
+              <option value="Immediate">Strict</option>
+              <option value="Dynamic">Dynamic</option>
+            </select>
+          </label>
+          <label title="How many blind actions to allow before the soft nudge primitive triggers">Blind Action Threshold<input id="blindActionThreshold" type="number" min="1"></label>
           <label>Max execution loops<input id="maxExecutionLoops" type="number" min="1"></label>
           <label>Max plan depth<input id="maxPlanDepth" type="number" min="1"></label>
           <label title="Model timeout in seconds">Model timeout (sec)<input id="modelTimeout" type="number" min="1"></label>
@@ -314,6 +341,7 @@
         </div>
 
         <div class="settings-grid" style="margin-top: 15px;">
+          <label title="Maximum bytes of a tool output (like a shell command) allowed into the context window before spilling into an artifact.">Max Prompt Tool Output Bytes<input id="maxPromptToolOutputBytes" type="number" min="1000"></label>
           <label title="Hard floor for token buffering safety limit">Context Minimum Buffer<input id="contextMinBuffer" type="number" min="1"></label>
           <label title="Absolute minimum allowed context budget regardless of dynamic math">Context Safe Budget Floor<input id="contextSafeBudget" type="number" min="1"></label>
           <label title="Hard floor for how much code can be injected into the prompt">Code Budget Max Floor<input id="contextCodeMaxFloor" type="number" min="1"></label>
