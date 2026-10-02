@@ -61,8 +61,8 @@ The Session tab tracks the active execution of the agent.
 #### MEMORY
 The Memory tab provides insight into what the agent "knows" and retains.
 - **WORKING MEMORY:** Displays the immediate, high-priority context the agent holds for the current task (e.g., discovered architectural decisions, rules).
-- **SESSION MEMORY:** Holds narrative memory entries generated during the ongoing conversation. The agent can actively search and query these entries to selectively pull historical context back into its working memory when needed.
-- **PROJECT MEMORY:** Insights and long-term knowledge the agent has indexed about the entire repository.
+- **SESSION MEMORY:** Holds narrative memory entries generated during the ongoing conversation. The agent can actively search and query these entries to selectively pull historical context back into its working memory when needed. **Note on Fast Mode:** Fast Mode tasks bypass complex DAG planning, but they *do not* bypass memory consolidation! At the end of every Fast Mode task, Loa extracts rich facts and decisions to store here, ensuring deep conversational continuity.
+- **PROJECT MEMORY:** Insights and long-term knowledge the agent has indexed about the entire repository. This index is kept perfectly synchronized with your actual filesystem via **JIT (Just-In-Time) Reconciliation**. If you manually edit, rename, or delete files in your IDE while Loa is running, Loa's File System Watcher detects it instantly, drops the stale memories, and re-indexes the new changes on the fly.
 
 #### OUTPUTS
 The Outputs tab provides observability into the agent's actions and artifacts.
@@ -82,11 +82,12 @@ Loa provides a robust system for bringing external files into your conversation 
 
 Because Loa operates as a strict state-machine, it thrives on explicit, clear objectives rather than vague ideas.
 
-### The "Intent" Phase
-When you submit a prompt, Loa runs it through an `Intent` classifier. It decides if your message is:
-- **Discuss:** "What do you think about using GraphQL here?" (The agent will answer conversationally. It can use a small subset of read-only tools sequentially to gather context, but will not formulate a complex plan).
-- **Investigatory:** "Analyze how the authentication system works and create a report." (The agent will draft a full DAG plan with steps and dependencies using read-only tools. **This executes automatically without requiring approval**).
-- **Modifying:** "Add a password reset endpoint to the authentication system." (The agent will draft a full DAG plan with steps, dependencies, and verification criteria. **This requires your manual approval before execution begins**).
+### The "Intent" Phase (Fast Mode vs. Planned Mode)
+When you submit a prompt while Loa is in **Auto Mode**, it dynamically routes your request into one of two primary workflows. *(Note: Because Auto Mode currently leans heavily toward generating Planned tasks, it is highly recommended to manually set your mode to **Fast** for normal conversational interactions and quick tasks.)*
+- **Fast Mode (Fast Track):** For simple questions, rapid file edits, localized debugging, or quick commands (e.g., "Fix the typo in index.html", "What does function X do?", "Run tests"). Fast Mode skips generating a complex DAG plan, allowing Loa to execute actions immediately in a rapid, lightweight loop. At the end of the loop, Fast Mode seamlessly consolidates its findings and actions into **session memory** so deep conversational continuity is preserved between quick tasks.
+- **Planned Mode:** For complex refactoring, multi-file feature additions, or broad investigatory tasks (e.g., "Add a password reset flow across the auth service, DB, and UI"). Loa drafts a full Directed Acyclic Graph (DAG) plan with concrete steps, dependencies, and verification criteria. 
+  - **Investigatory plans** execute automatically.
+  - **Modifying plans** require your manual approval before execution begins.
 
 ### Best Practices for Modifying Prompts
 1. **Be specific about the "What":** State the exact feature or bug fix.
@@ -101,6 +102,13 @@ When Loa receives a steering message during execution, it will:
 3. Update its current actions or entirely rewrite its remaining DAG plan to accommodate your new instructions.
 4. Resume execution seamlessly.
 This allows you to dynamically guide the agent if you realize a requirement has changed or if you spot a better architectural approach while watching it work.
+
+### Dynamic Evaluation & Blind Actions
+By default, Loa evaluates every single action it takes against its overall objective before proceeding. However, you can configure the **Evaluation Mode** (in Settings) to optimize for speed:
+- **Strict:** Every step is thoroughly evaluated.
+- **Dynamic:** Loa can execute tightly coupled changes "blindly" in rapid succession.
+
+When using Dynamic mode, the **Blind Action Threshold** determines how many fast actions Loa can take before it is forced to do a deep evaluation. During these blind actions, a background LLM supervisor watches the execution stream. If the supervisor detects that the agent is staying on track, it can hit the "snooze button" to allow the agent to continue working quickly without a heavy evaluation. These background supervisor decisions ("continue" vs. "evaluate") and their reasoning are fully observable in the Execution Log, ensuring you always know why Loa is proceeding or pausing.
 
 ---
 

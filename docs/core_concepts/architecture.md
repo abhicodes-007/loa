@@ -46,6 +46,7 @@ graph TD
 
 To prevent runaway costs and infinite logic loops, Loa enforces a rigid constraint system:
 
+- **Dynamic Evaluation & Background Supervisor:** When configured in `dynamic` evaluation mode, Loa can execute tightly coupled tasks quickly in sequence (blindly). However, a lightweight background supervisor LLM constantly monitors the execution log. If the supervisor detects the agent drifting off task, it can interrupt the blind execution and force a deep, strict evaluation before the `Max Execution Loops` or `Blind Action Threshold` is even reached.
 - **Max Execution Loops:** A global configuration setting that acts as a circuit breaker. It tracks the total number of iterative operations (tool executions, reflections, replans) across an entire task session. 
 - **The PAUSED State:** If the agent hits the `Max Execution Loops` threshold, the engine immediately halts and transitions to a PAUSED state. It suspends all background activity. From here, the user can manually inspect the session logs, tweak configurations, or provide manual guidance before choosing to resume or abort.
 
@@ -59,3 +60,9 @@ The engine does not blindly crash when a tool fails or an LLM hallucinates malfo
 - **Intervention (`PrimitiveIntervention`):** If the execution enters a catastrophic loop, the engine suspends to a manual-intervention state, preserving the DAG, memories, tool state, and artifacts for the user to inspect and resolve.
 
 By treating error states as explicit Primitives rather than unhandled exceptions, the engine maintains context and stability even during complex refactors.
+
+## JIT File System Reconciliation
+
+While the Engine strictly controls mutations during execution, Loa respects that developers often work alongside the agent. The **JIT (Just-In-Time) Reconciliation** system uses a background File System Watcher to detect manual out-of-band changes to the codebase. 
+
+When a developer edits, deletes, or renames a file in their IDE, the Watcher immediately invalidates the stale AST memory and triggers the crawler to re-index the affected files on the fly. This guarantees that Loa's internal semantic graph perfectly mirrors the actual physical filesystem at all times, without requiring manual restarts or full re-indexes.

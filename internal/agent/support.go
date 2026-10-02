@@ -105,6 +105,34 @@ func (e *Engine) executeTool(ctx context.Context, req tools.Request, mayModify b
 		activeTaskID = snap.ActiveTask.ID
 	}
 	res := e.tools.Execute(ctx, call, activeTaskID)
+	
+	limit := e.cfg.Get().MaxPromptToolOutputBytes
+	if limit <= 0 {
+		limit = 30000
+	}
+	if len(res.Output) > limit {
+		half := limit / 2
+		artName := fmt.Sprintf("spill_%d.log", time.Now().UnixNano())
+		_ = e.tools.DumpToArtifact(activeTaskID, artName, res.Output)
+		truncMsg := fmt.Sprintf("\n\n... [TRUNCATED - EXCEEDS PROMPT LIMIT (%d > %d bytes). FULL OUTPUT SAVED TO ARTIFACT: %s. Use artifact_read to read it.] ...\n\n", len(res.Output), limit, artName)
+		res.Output = res.Output[:half] + truncMsg + res.Output[len(res.Output)-half:]
+		
+		if activeTaskID != 0 {
+			e.store.UpdateActiveTask(func(t *state.TaskState) {
+				found := false
+				for _, a := range t.Context.Artifacts {
+					if a == artName {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Context.Artifacts = append(t.Context.Artifacts, artName)
+				}
+			})
+		}
+	}
+
 	e.store.AddToolResult(res)
 	e.log(state.LogTool, "ToolResult", fmt.Sprintf("%s completed (success=%v)", req.Kind, res.Success), mustJSON(call), mustJSON(res))
 	return res, nil
@@ -154,7 +182,7 @@ func formatToolResult(req tools.Request, res state.ToolResult) string {
 	if res.ExitCode != nil {
 		exit = fmt.Sprintf("%d", *res.ExitCode)
 	}
-	return fmt.Sprintf("TOOL %s (%s)\nINPUT: %s\nSUCCESS: %v\nEXIT: %s\nERROR: %s\nOUTPUT:\n%s", req.Kind, req.Description, string(req.Input), res.Success, exit, res.Error, res.Output)
+	return fmt.Sprintf("[ACTION EXECUTED - AWAITING EVALUATION]\nTOOL %s (%s)\nINPUT: %s\nSUCCESS: %v\nEXIT: %s\nERROR: %s\nOUTPUT:\n%s", req.Kind, req.Description, string(req.Input), res.Success, exit, res.Error, res.Output)
 }
 func trackToolFiles(req tools.Request, res state.ToolResult, reads, changes map[string]bool) {
 	var x struct {

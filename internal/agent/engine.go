@@ -349,50 +349,78 @@ func (e *Engine) runMessage(ctx context.Context, msg state.Message) {
 		return
 	}
 
-	intent, err := e.interpretIntent(ctx, msg.Text)
-	if err != nil {
-		runErr = err
-		return
-	}
-	e.store.SetMessageIntents(msg.ID, intent.Intents)
-	_ = e.extractDurableMemory(ctx, []uint64{msg.ID})
+	snap := e.store.Snapshot()
+	mode := snap.ComplexityMode
+	mayModify := !snap.ReadOnly
+	e.log(state.LogSystem, "RunMessage", fmt.Sprintf("Starting message run. Snapshot ComplexityMode: %q, ReadOnly: %v", mode, snap.ReadOnly), "", "")
 
-	if intent.Ambiguous {
-		ar, err := e.resolveAmbiguity(ctx, msg.Text)
+	var intent state.IntentResult
+	if mode == "" || mode == "Auto" {
+		var err error
+		intent, err = e.interpretIntent(ctx, msg.Text)
 		if err != nil {
 			runErr = err
 			return
 		}
-		if ar.Action == "ask_user" {
-			answer, err := e.askUser(ctx, ar.Missing)
+		e.store.SetMessageIntents(msg.ID, intent.Intents)
+
+		if intent.Ambiguous {
+			ar, err := e.resolveAmbiguity(ctx, msg.Text)
 			if err != nil {
 				runErr = err
 				return
 			}
-			intent, err = e.interpretIntent(ctx, "Original message: "+msg.Text+"\nClarification answer: "+answer)
-			if err != nil {
-				runErr = err
-				return
+			if ar.Action == "ask_user" {
+				answer, err := e.askUser(ctx, ar.Missing)
+				if err != nil {
+					runErr = err
+					return
+				}
+				intent, err = e.interpretIntent(ctx, "Original message: "+msg.Text+"\nClarification answer: "+answer)
+				if err != nil {
+					runErr = err
+					return
+				}
 			}
 		}
+
+		if hasIntent(intent.Intents, state.IntentTask) {
+			mode = "Planned"
+		} else {
+			mode = "Fast"
+		}
+	} else {
+		// Bypass interpretIntent for explicit mode
+		intent = state.IntentResult{
+			Intents:   []state.Intent{state.IntentTask},
+			TaskTitle: "Process Request",
+		}
+		e.store.SetMessageIntents(msg.ID, intent.Intents)
 	}
 
-	snap := e.store.Snapshot()
+	_ = e.extractDurableMemory(ctx, []uint64{msg.ID})
+
 	if snap.ActiveTask != nil && snap.ActiveTask.Status == state.TaskAwaitingApproval {
 		runErr = e.runNegotiation(ctx, msg.Text, intent)
 		return
 	}
 
-	if hasIntent(intent.Intents, state.IntentTask) {
-		snap := e.store.Snapshot()
-		if snap.ActiveTask != nil && snap.ActiveTask.Status == state.TaskFailed && snap.ActiveTask.Failure != nil && snap.ActiveTask.Failure.Recoverable {
-			runErr = e.handleFailedTaskMessage(ctx, msg.Text, intent.MayModify)
+	if intent.TaskTitle == "" {
+		intent.TaskTitle = "Process Request"
+	}
+
+	if snap.ActiveTask != nil && snap.ActiveTask.Status == state.TaskFailed && snap.ActiveTask.Failure != nil && snap.ActiveTask.Failure.Recoverable {
+		isFastTask := len(snap.ActiveTask.Plan.Steps) > 0 && snap.ActiveTask.Plan.Steps[0].Title == "Execute Fast Track"
+		modeMismatch := (mode == "Planned" && isFastTask) || (mode == "Fast" && !isFastTask)
+
+		if modeMismatch {
+			e.store.CompleteActiveTask(state.TaskFailed)
+		} else {
+			runErr = e.handleFailedTaskMessage(ctx, msg.Text, mayModify)
 			return
 		}
-		runErr = e.runTask(ctx, msg.Text, intent.MayModify, intent.TaskTitle)
-		return
 	}
-	runErr = e.runDiscussion(ctx, msg.Text, intent)
+	runErr = e.runTask(ctx, msg.Text, mayModify, intent.TaskTitle, mode)
 }
 
 func hasIntent(in []state.Intent, want state.Intent) bool {
@@ -487,10 +515,15 @@ func (e *Engine) processInterventions(ctx context.Context, step *state.PlanStep)
 		decision.Reason = "User guidance required clarification before remaining work could continue. " + decision.Reason
 	}
 	if decision.Action == "replan_remaining" {
-		if err := e.updateAcceptanceCriteria(ctx, snap.ActiveTask.Goal, strings.Join(latestParts, "\n"), nil); err != nil {
-			return "", "", err
+		if snap.ActiveTask.ComplexityMode == "Fast" {
+			decision.Action = "continue"
+			decision.Reason = "replan skipped due to Fast Mode. " + decision.Reason
+		} else {
+			if err := e.updateAcceptanceCriteria(ctx, snap.ActiveTask.Goal, strings.Join(latestParts, "\n"), nil); err != nil {
+				return "", "", err
+			}
+			return "replan", "User guidance changed the active task: " + decision.Reason, nil
 		}
-		return "replan", "User guidance changed the active task: " + decision.Reason, nil
 	}
 	return "continue", decision.Reason, nil
 }
@@ -508,86 +541,7 @@ func (e *Engine) resolveAmbiguity(ctx context.Context, text string) (primitives.
 }
 
 
-func (e *Engine) runDiscussion(ctx context.Context, userText string, intent state.IntentResult) error {
-	extras := []string{}
-	retrievalRound := 0
-	deniedSignature := ""
-	for loop := 0; loop < e.cfg.Get().MaxExecutionLoops; loop++ {
-		cb := &engineContextBuilder{e: e}
-		prim := primitives.NewDiscussPrimitive(e.cfg.Get(), e.llm, baseSystem)
-		d, err := prim.Execute(ctx, cb, primitives.DiscussInput{
-			UserText: userText,
-			Intent:   intent,
-			Extras:   extras,
-		})
-		if err != nil {
-			return err
-		}
-		switch d.Action {
-		case "retrieve_memory":
-			if !intent.MayInvestigate {
-				extras = append(extras, "Investigation is not enabled for this message intent; answer from supplied context or ask the user.")
-				continue
-			}
-			deniedSignature = ""
-			cands, err := e.retrieveMemoryRound(ctx, d.Query, d.AllowedKinds, nil, retrievalRound)
-			retrievalRound++
-			if err != nil {
-				extras = append(extras, "Memory retrieval error: "+err.Error())
-			} else {
-				extras = append(extras, "MEMORY RESULTS:\n"+cands)
-			}
-		case "task_summaries":
-			if !intent.MayInvestigate {
-				extras = append(extras, "Investigation is not enabled for this message intent.")
-				continue
-			}
-			deniedSignature = ""
-			extras = append(extras, e.taskSummaryText())
-		case "tool":
-			if !intent.MayInvestigate {
-				extras = append(extras, "Tool investigation is not enabled for this message intent.")
-				continue
-			}
-			if d.Tool == nil {
-				return errors.New("discussion requested nil tool")
-			}
-			sig := toolSignature(*d.Tool)
-			if sig == deniedSignature {
-				extras = append(extras, "Repeated identical tool request blocked because the user just denied it. Choose a different action, gather more information, or ask the user.")
-				continue
-			}
-			if tools.IsMutating(d.Tool.Kind) && d.Tool.Kind != state.ToolExecuteProcess && d.Tool.Kind != state.ToolExecuteShell {
-				return fmt.Errorf("discussion mode rejected mutating tool %s", d.Tool.Kind)
-			}
-			res, err := e.executeTool(ctx, *d.Tool, false)
-			if err != nil {
-				return err
-			}
-			if res.Error == "permission_denied" {
-				deniedSignature = sig
-			} else {
-				deniedSignature = ""
-			}
-			extras = append(extras, formatToolResult(*d.Tool, res))
-		case "ask_user":
-			deniedSignature = ""
-			answer, err := e.askUser(ctx, d.Question)
-			if err != nil {
-				return err
-			}
-			extras = append(extras, "USER CLARIFICATION: "+answer)
-		case "final":
-			answer, err := e.generateFinalResponse(ctx, userText, d.Answer, nil, extras)
-			if err != nil {
-				return err
-			}
-			e.addAgentMessage(answer, false)
-			return nil
-		}
-	}
-	return errors.New("discussion exceeded maximum execution loops")
-}
+
 
 func (e *Engine) runNegotiation(ctx context.Context, userText string, intent state.IntentResult) error {
 	extras := []string{}
@@ -598,7 +552,7 @@ func (e *Engine) runNegotiation(ctx context.Context, userText string, intent sta
 	planContext := "CURRENT PENDING PLAN:\n" + mustJSON(snap.ActiveTask.Plan) + "\n\n"
 
 	for loop := 0; loop < e.cfg.Get().MaxExecutionLoops; loop++ {
-		purpose := planContext + fmt.Sprintf("USER REQUEST:\n%s\n\nINTENT:\n%s\n\nAVAILABLE TOOLS:\n%s", userText, mustJSON(intent), tools.ToolSchema())
+		purpose := planContext + fmt.Sprintf("USER REQUEST:\n%s\n\nINTENT:\n%s\n\nAVAILABLE TOOLS:\n%s", userText, mustJSON(intent), tools.ToolSchema(snap.ReadOnly))
 		negPrim := primitives.NewNegotiationPrimitive(e.cfg.Get(), e.llm, baseSystem)
 		d, err := negPrim.Execute(ctx, &engineContextBuilder{e: e}, primitives.NegotiationInput{
 			Purpose: purpose,
@@ -622,10 +576,7 @@ func (e *Engine) runNegotiation(ctx context.Context, userText string, intent sta
 			})
 			return e.runActiveTask(ctx)
 		case "retrieve_memory":
-			if !intent.MayInvestigate {
-				extras = append(extras, "Investigation is not enabled for this message intent; answer from supplied context or ask the user.")
-				continue
-			}
+
 			deniedSignature = ""
 			cands, err := e.retrieveMemoryRound(ctx, d.Query, d.AllowedKinds, nil, retrievalRound)
 			retrievalRound++
@@ -635,17 +586,11 @@ func (e *Engine) runNegotiation(ctx context.Context, userText string, intent sta
 				extras = append(extras, "MEMORY RESULTS:\n"+cands)
 			}
 		case "task_summaries":
-			if !intent.MayInvestigate {
-				extras = append(extras, "Investigation is not enabled for this message intent.")
-				continue
-			}
+
 			deniedSignature = ""
 			extras = append(extras, e.taskSummaryText())
 		case "tool":
-			if !intent.MayInvestigate {
-				extras = append(extras, "Tool investigation is not enabled for this message intent.")
-				continue
-			}
+
 			if d.Tool == nil {
 				return errors.New("negotiation requested nil tool")
 			}
@@ -686,13 +631,13 @@ func (e *Engine) runNegotiation(ctx context.Context, userText string, intent sta
 	return errors.New("negotiation exceeded maximum execution loops")
 }
 
-func (e *Engine) runTask(ctx context.Context, goal string, mayModify bool, title string) error {
+func (e *Engine) runTask(ctx context.Context, goal string, mayModify bool, title string, complexityMode string) error {
 	if snap := e.store.Snapshot(); snap.ActiveTask != nil {
 		return errors.New("cannot start a new task while another task is active")
 	}
 
 	taskID := e.store.NextID()
-	task := &state.TaskState{ID: taskID, Title: title, Goal: goal, MayModify: mayModify, Status: state.TaskPlanning, StartedAt: time.Now(), Plan: state.Plan{Version: 1}}
+	task := &state.TaskState{ID: taskID, Title: title, Goal: goal, MayModify: mayModify, ComplexityMode: complexityMode, Status: state.TaskPlanning, StartedAt: time.Now(), Plan: state.Plan{Version: 1}}
 	e.store.SetActiveTask(task)
 
 	planningExtras := []string{}
@@ -701,14 +646,34 @@ func (e *Engine) runTask(ctx context.Context, goal string, mayModify bool, title
 			planningExtras = append(planningExtras, "RELEVANT PRIOR MEMORY FOR PLANNING:\n"+cands)
 		}
 	}
-	if err := e.updateAcceptanceCriteria(ctx, goal, "", planningExtras); err != nil {
-		return err
-	}
-	if err := e.createInitialPlan(ctx, goal, planningExtras); err != nil {
-		return err
+	
+	if complexityMode == "Fast" {
+		stepID := e.store.NextID()
+		mode := state.StepModify
+		if !mayModify {
+			mode = state.StepInvestigate
+		}
+		step := state.PlanStep{
+			ID:     stepID,
+			Title:  "Execute Fast Track",
+			Goal:   goal,
+			Reason: "Fast mode enabled. Proceed dynamically.",
+			Mode:   mode,
+			Status: state.StepPending,
+		}
+		e.store.UpdateActiveTask(func(t *state.TaskState) {
+			t.Plan.Steps = append(t.Plan.Steps, step)
+		})
+	} else {
+		if err := e.updateAcceptanceCriteria(ctx, goal, "", planningExtras); err != nil {
+			return err
+		}
+		if err := e.createInitialPlan(ctx, goal, planningExtras); err != nil {
+			return err
+		}
 	}
 
-	if mayModify {
+	if mayModify && complexityMode != "Fast" {
 		e.store.UpdateActiveTask(func(t *state.TaskState) {
 			t.Status = state.TaskAwaitingApproval
 		})
@@ -790,7 +755,7 @@ func (e *Engine) handleFailedTaskMessage(ctx context.Context, latest string, may
 			continue
 		case "start_new":
 			e.store.CompleteActiveTask(state.TaskFailed)
-			return e.runTask(ctx, latest, mayModify, "")
+			return e.runTask(ctx, latest, mayModify, "", snap.ComplexityMode)
 		case "continue", "retry", "replan":
 			if err := e.updateAcceptanceCriteria(ctx, snap.ActiveTask.Goal, latest, nil); err != nil {
 				return err
@@ -932,6 +897,8 @@ func (e *Engine) runActiveTask(ctx context.Context) error {
 			return err
 		}
 		switch outcome {
+		case "fast_complete":
+			return nil
 		case "done":
 			continue
 		case "replan":
@@ -1143,6 +1110,16 @@ func (e *Engine) prepareStep(ctx context.Context, idx int, step state.PlanStep) 
 		if !snap.ActiveTask.MayModify && step.Mode == state.StepModify {
 			return fmt.Errorf("read-only task cannot execute modify step %q", step.Title)
 		}
+		if snap.ActiveTask.ComplexityMode == "Fast" {
+			e.store.UpdateActiveTask(func(t *state.TaskState) {
+				for i := range t.Plan.Steps {
+					if t.Plan.Steps[i].ID == step.ID {
+						t.Plan.Steps[i].Status = state.StepRunning
+					}
+				}
+			})
+			return nil
+		}
 		stepEvalPrim := primitives.NewEvaluateStepPrimitive(e.cfg.Get(), e.llm, baseSystem)
 		ev, err := stepEvalPrim.Execute(ctx, &engineContextBuilder{e: e}, primitives.EvaluateStepInput{Step: step})
 		if err != nil {
@@ -1289,7 +1266,19 @@ func (e *Engine) executeStep(ctx context.Context, stepID uint64) (string, string
 	if err != nil {
 		return "", "", err
 	}
-	e.addMemory(ctx, state.MemoryStep, step.Title+": "+step.Goal, nil, &step.ID, state.MessageAgent)
+	alreadyInjected := false
+	if sStore := e.SessionMemStore(); sStore != nil {
+		for _, mem := range sStore.SessionMemories() {
+			if mem.Kind == state.MemoryStep && mem.SourceStepID != nil && *mem.SourceStepID == step.ID {
+				alreadyInjected = true
+				break
+			}
+		}
+	}
+	
+	if !alreadyInjected {
+		e.addMemory(ctx, state.MemoryStep, step.Title+": "+step.Goal, nil, &step.ID, state.MessageAgent)
+	}
 
 	snap := e.store.Snapshot()
 	var extras []string
@@ -1308,11 +1297,19 @@ func (e *Engine) executeStep(ctx context.Context, stepID uint64) (string, string
 	filesChanged := map[string]bool{}
 	toolIDs := []uint64{}
 	artifacts := []string{}
+	blindTrail := []string{}
 	consecutiveFailures := 0
+	blindActions := 0
+	pinnedEvaluation := ""
 	for loop := 0; loop < e.cfg.Get().MaxExecutionLoops; loop++ {
 		step, err := e.getStep(stepID)
 		if err != nil {
 			return "", "", err
+		}
+		if e.hasStaleFiles() {
+			if err := e.repairStaleFiles(ctx); err != nil {
+				e.log(state.LogSystem, "Engine", "failed to repair stale files during step execution", "", err.Error())
+			}
 		}
 		interventionOutcome, interventionReason, err := e.processInterventions(ctx, &step)
 		if err != nil {
@@ -1322,10 +1319,21 @@ func (e *Engine) executeStep(ctx context.Context, stepID uint64) (string, string
 			return "replan", interventionReason, nil
 		}
 		execPrim := primitives.NewExecuteStepPrimitive(e.cfg.Get(), e.llm, baseSystem)
+		
+		stepExtras := make([]string, len(extras))
+		copy(stepExtras, extras)
+		if len(artifacts) > 0 {
+			stepExtras = append(stepExtras, "ACTIVE ARTIFACTS CREATED IN THIS LOOP:\n"+strings.Join(artifacts, ", ")+"\nUse artifact_read to read them if you need to recall notes.")
+		}
+
 		d, err := execPrim.Execute(ctx, &engineContextBuilder{e: e}, primitives.ExecuteStepInput{
-			Step:   step,
-			Extras: extras,
-		})
+			Step:             step,
+			PinnedEvaluation: pinnedEvaluation,
+			Extras:           stepExtras,
+			BlindTrail:       blindTrail,
+			ReadOnly:         snap.ReadOnly,
+			IsFastLane:       snap.ActiveTask.ComplexityMode == "Fast",
+		}, e.cfg.Get().EvaluationMode)
 		if err != nil {
 			if strings.Contains(err.Error(), "structured response invalid after") {
 				return "replan", "Model repeatedly failed to format or complete its output: " + err.Error(), nil
@@ -1414,6 +1422,12 @@ func (e *Engine) executeStep(ctx context.Context, stepID uint64) (string, string
 			}
 			toolIDs = append(toolIDs, res.ToolCallID)
 			trackToolFiles(*d.Tool, res, filesRead, filesChanged)
+			if res.Success && (d.Tool.Kind == state.ToolWriteFile || d.Tool.Kind == state.ToolPatchFile || d.Tool.Kind == state.ToolDeleteFile) {
+				var x struct{ Path string `json:"path"` }
+				if err := json.Unmarshal(d.Tool.Input, &x); err == nil && x.Path != "" {
+					e.markStale(filepath.Join(e.root, x.Path))
+				}
+			}
 			if res.Success && (d.Tool.Kind == state.ToolArtifactWrite || d.Tool.Kind == state.ToolArtifactAppend || d.Tool.Kind == state.ToolArtifactPatch) {
 				var x struct{ Name string `json:"name"` }
 				if err := json.Unmarshal(d.Tool.Input, &x); err == nil && x.Name != "" {
@@ -1421,6 +1435,7 @@ func (e *Engine) executeStep(ctx context.Context, stepID uint64) (string, string
 				}
 			}
 			extras = append(extras, formatToolResult(*d.Tool, res))
+			blindTrail = append(blindTrail, fmt.Sprintf("- Action: %s, Reason: %s", string(d.Tool.Kind), d.Reason))
 			if !tools.IsMutating(d.Tool.Kind) && res.Success {
 				executedReads[sig] = true
 				readCount++
@@ -1442,6 +1457,33 @@ func (e *Engine) executeStep(ctx context.Context, stepID uint64) (string, string
 				continue // reconsider the step with the completed tool result plus new guidance
 			}
 			if tools.IsMutating(d.Tool.Kind) && d.Tool.Kind != state.ToolExecuteProcess {
+				shouldEvaluate := true
+				if e.cfg.Get().EvaluationMode == "Dynamic" {
+					blindActions++
+					if d.EvaluateAfter != nil && !*d.EvaluateAfter {
+						shouldEvaluate = false
+					}
+					if blindActions >= e.cfg.Get().BlindActionThreshold && !shouldEvaluate {
+						assessPrim := primitives.NewAssessBlindExecutionPrimitive(e.cfg.Get(), e.llm, baseSystem)
+						decision, err := assessPrim.Execute(ctx, &engineContextBuilder{e: e}, primitives.AssessBlindInput{
+							Step:   &step,
+							Extras: extras,
+						})
+						if err == nil && decision.Decision == "evaluate" {
+							shouldEvaluate = true
+							extras = append(extras, "SOFT NUDGE: Agent elected to evaluate due to exceeding blind action threshold ("+decision.Reason+")")
+						} else {
+							blindActions = 0 // Reset threshold so it doesn't nudge every single action after
+							if err == nil && decision.Decision == "continue" {
+								e.log(state.LogSystem, "AssessBlindExecution", "background LLM elected to let the agent continue blind actions", decision.Reason, "")
+							}
+						}
+					}
+				}
+
+				if !shouldEvaluate {
+					continue
+				}
 				r, err := e.reflect(ctx, step, *d.Tool, res, extras)
 				if err != nil {
 					return "", "", err
@@ -1464,6 +1506,11 @@ func (e *Engine) executeStep(ctx context.Context, stepID uint64) (string, string
 					consecutiveFailures = 0
 				}
 				outcome, why, err := e.handleReflection(ctx, r, &step, &extras, filesChanged)
+				if e.cfg.Get().EvaluationMode == "Dynamic" {
+					pinnedEvaluation = mustJSON(r)
+					blindTrail = []string{}
+					blindActions = 0
+				}
 				if err != nil {
 					return "", "", err
 				}
@@ -1472,6 +1519,25 @@ func (e *Engine) executeStep(ctx context.Context, stepID uint64) (string, string
 				}
 			}
 		case "step_complete":
+			if snap.ActiveTask.ComplexityMode == "Fast" {
+				synPrim := primitives.NewSynthesizeTaskPrimitive(e.cfg.Get(), e.llm, baseSystem)
+				synRes, err := synPrim.Execute(ctx, &engineContextBuilder{e: e}, primitives.SynthesizeTaskInput{
+					Goal:             step.Goal,
+					PinnedEvaluation: pinnedEvaluation,
+					Extras:           extras,
+				})
+				if err != nil {
+					return "", "", err
+				}
+				e.addAgentMessage(synRes.Response, false)
+				summaryPurpose := "TASK:\n" + step.Goal + "\n\nRESULTS:\n" + mustJSON(compactStepResults(snap.ActiveTask.StepResults))
+				summaryText := e.finalizeTaskMemory(ctx, snap, baseSystem, summaryPurpose)
+				e.addMemory(ctx, state.MemoryTask, summaryText+"\n\nOutput:\n"+synRes.Response, nil, nil, state.MessageAgent)
+				e.store.CompleteActiveTask(state.TaskCompleted)
+				extras = []string{}
+				return "fast_complete", "", nil
+			}
+
 			r, err := e.evaluateStepCompletion(ctx, step, d.CompletionSummary, extras)
 			if err != nil {
 				return "", "", err
@@ -1576,6 +1642,10 @@ func (e *Engine) handleReflection(ctx context.Context, r primitives.ReflectionRe
 		}
 		return "continue", "", nil
 	case "plan_invalid":
+		if e.store.Snapshot().ActiveTask.ComplexityMode == "Fast" {
+			*extras = append(*extras, "CRITIQUE: Approach deemed invalid: "+r.Reason)
+			return "continue", "", nil
+		}
 		return "replan", r.Reason, nil
 	case "failed":
 
@@ -1595,8 +1665,16 @@ func (e *Engine) handleReflection(ctx context.Context, r primitives.ReflectionRe
 				*extras = append(*extras, "ROLLBACK FAILED: "+err.Error())
 				return "continue", "", nil
 			}
+			if e.store.Snapshot().ActiveTask.ComplexityMode == "Fast" {
+				*extras = append(*extras, "CRITIQUE: Approach failed, rollback executed. Reason: "+route.Reason)
+				return "continue", "", nil
+			}
 			return "replan", route.Reason + " (Rollback executed)", nil
 		case "replan":
+			if e.store.Snapshot().ActiveTask.ComplexityMode == "Fast" {
+				*extras = append(*extras, "CRITIQUE: Approach failed. Reason: "+route.Reason)
+				return "continue", "", nil
+			}
 			return "replan", route.Reason, nil
 		case "repair":
 			if step.Mode != state.StepModify {
@@ -1828,6 +1906,20 @@ func (e *Engine) finishTask(ctx context.Context, check primitives.FinalCheck) er
 
 	goal := snap.ActiveTask.Goal
 	summaryPurpose := "TASK:\n" + goal + "\n\nACCEPTANCE CRITERIA:\n" + mustJSON(snap.ActiveTask.AcceptanceCriteria) + "\n\nFINAL ACCEPTANCE CHECKS:\n" + mustJSON(check.Checks) + "\n\nRESULTS:\n" + mustJSON(compactStepResults(snap.ActiveTask.StepResults))
+	summaryText := e.finalizeTaskMemory(ctx, snap, baseSystem, summaryPurpose)
+
+	e.store.CompleteActiveTask(state.TaskCompleted)
+
+	e.addAgentMessage(answer, false)
+	e.addMemory(ctx, state.MemoryTask, summaryText+"\n\nOutput:\n"+answer, nil, nil, state.MessageAgent)
+
+	if err := e.store.Save("autosave"); err != nil {
+		return fmt.Errorf("auto-save completed task: %w", err)
+	}
+	return nil
+}
+
+func (e *Engine) finalizeTaskMemory(ctx context.Context, snap state.AgentState, baseSystem string, summaryPurpose string) string {
 	sumPrim := primitives.NewSummarizeTaskPrimitive(e.cfg.Get(), e.llm, baseSystem)
 	summary, err := sumPrim.Execute(ctx, &engineContextBuilder{e: e}, primitives.SummarizeTaskInput{
 		Purpose: summaryPurpose,
@@ -1859,8 +1951,6 @@ func (e *Engine) finishTask(ctx context.Context, check primitives.FinalCheck) er
 		e.memStore.AddSummary(summaryItem)
 	}
 
-	e.store.CompleteActiveTask(state.TaskCompleted)
-
 	if len(snap.ActiveTask.Context.Facts) > 0 || len(snap.ActiveTask.Context.Decisions) > 0 {
 		purpose := "WORKING MEMORY TO CONSOLIDATE:\n\nFacts:\n"
 		for _, f := range snap.ActiveTask.Context.Facts {
@@ -1888,14 +1978,8 @@ func (e *Engine) finishTask(ctx context.Context, check primitives.FinalCheck) er
 			e.log(state.LogSystem, "ConsolidateContext", "memory consolidation failed, dropping memory to prevent bloat", "", err.Error())
 		}
 	}
-
-	e.addAgentMessage(answer, false)
-	e.addMemory(ctx, state.MemoryTask, summary.Summary+"\n\nOutput:\n"+answer, nil, nil, state.MessageAgent)
-
-	if err := e.store.Save("autosave"); err != nil {
-		return fmt.Errorf("auto-save completed task: %w", err)
-	}
-	return nil
+	
+	return summary.Summary
 }
 
 func fallbackTaskSummary(results []state.StepResult) string {

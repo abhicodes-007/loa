@@ -370,6 +370,17 @@ func (st *Store) SetActiveTask(t *TaskState) {
 	st.s.ActiveTask = t
 	st.markDirtyLocked()
 }
+
+func (st *Store) SetSessionModes(complexity string, readOnly bool) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if st.s != nil {
+		st.s.ComplexityMode = complexity
+		st.s.ReadOnly = readOnly
+		st.markDirtyLocked()
+	}
+}
+
 func (st *Store) UpdateActiveTask(fn func(*TaskState)) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
@@ -637,6 +648,10 @@ func loadSessionState(root, id string) (*AgentState, error) {
 	}
 	if s.SessionID == "" || s.SessionID != id {
 		return nil, fmt.Errorf("session file %s has invalid session id", path)
+	}
+
+	if s.ComplexityMode == "" {
+		s.ComplexityMode = "Fast"
 	}
 	var maxID uint64
 	for _, m := range s.Messages {

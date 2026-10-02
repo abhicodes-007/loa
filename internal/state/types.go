@@ -16,8 +16,7 @@ type IntentResult struct {
 	Intents                []Intent `json:"intents"`
 	TaskTitle              string   `json:"task_title,omitempty"`
 	AnswersPendingQuestion bool     `json:"answers_pending_question"`
-	MayInvestigate         bool     `json:"may_investigate"`
-	MayModify              bool     `json:"may_modify"`
+
 	Ambiguous              bool     `json:"ambiguous"`
 	Reason                 string   `json:"reason"`
 }
@@ -58,6 +57,7 @@ type TaskContext struct {
 	Decisions   []string `json:"decisions"`
 	Constraints []string `json:"constraints"`
 	OpenIssues  []string `json:"open_issues"`
+	Artifacts   []string `json:"artifacts,omitempty"`
 }
 
 type AcceptanceStatus string
@@ -151,6 +151,7 @@ type TaskState struct {
 	Title              string                `json:"title,omitempty"`
 	Goal               string                `json:"goal"`
 	MayModify          bool                  `json:"may_modify"`
+	ComplexityMode     string                `json:"complexity_mode"`
 	Status             TaskStatus            `json:"status"`
 	AcceptanceCriteria []AcceptanceCriterion `json:"acceptance_criteria,omitempty"`
 	AcceptanceChecks   []AcceptanceCheck     `json:"acceptance_checks,omitempty"`
@@ -345,6 +346,8 @@ type AgentState struct {
 	PendingQuestion   *PendingQuestion    `json:"pending_question,omitempty"`
 	Uploads           []UploadState       `json:"uploads,omitempty"`
 	ActiveAttachments []AttachmentState   `json:"active_attachments,omitempty"`
+	ComplexityMode    string              `json:"complexity_mode,omitempty"`
+	ReadOnly          bool                `json:"read_only,omitempty"`
 	NextID            uint64              `json:"next_id"`
 	Sequence          uint64              `json:"sequence"`
 }

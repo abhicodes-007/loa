@@ -80,8 +80,16 @@
     const el = $('#toast');
     el.textContent = msg;
     el.className = 'toast show' + (bad ? ' error' : '');
+    if (el.showPopover && !el.matches(':popover-open')) {
+      try { el.showPopover(); } catch (e) {}
+    }
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => el.className = 'toast', 3500);
+    toastTimer = setTimeout(() => {
+      el.className = 'toast';
+      if (el.hidePopover) {
+        setTimeout(() => { try { el.hidePopover(); } catch (e) {} }, 250);
+      }
+    }, 3500);
   }
 
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -436,6 +444,15 @@
     const sessions = x.sessions || {};
     const persistence = x.persistence || {};
     activeSessionID = sessions.active_id || '';
+
+    if (st.complexity_mode) {
+      const radio = document.querySelector(`input[name="complexityModeCtrl"][value="${st.complexity_mode}"]`);
+      if(radio) radio.checked = true;
+    }
+
+    if ($('#readOnlyCtrl') && st.read_only !== undefined) {
+      $('#readOnlyCtrl').checked = st.read_only;
+    }
 
     $('#infCount').textContent = rt.stats?.inferences ?? 0;
     $('#embCount').textContent = rt.stats?.embeddings ?? 0;
@@ -900,6 +917,10 @@
     const cont = $('#workingMemoryContainer');
     if (!cont) return;
     
+    const sig = signature([activeTask?.extras, memory, ctxText?.length]);
+    if (sig === renderSignatures.workingMemory) return;
+    renderSignatures.workingMemory = sig;
+
     let html = '';
     const ctxLen = ctxText ? ctxText.length : 0;
     html += `<div style="margin-bottom: 20px;">
@@ -1448,6 +1469,17 @@
       $('#sessionDialog').close();
       lastApprovalKey = '';
       lastSaveSequence = Number(r.persistence?.save_sequence || 0);
+      try {
+        await api('/api/session/modes', {
+          method: 'POST',
+          body: JSON.stringify({
+            complexity_mode: document.querySelector('input[name="complexityModeCtrl"]:checked')?.value,
+            read_only: $('#readOnlyCtrl').checked
+          })
+        });
+      } catch (e) {
+        console.warn('Failed to sync initial session modes', e);
+      }
       toast(`${r.saved_current ? 'Saved current · ' : ''}Session created: ${r.session.title}`);
       await refresh();
     } catch (err) {
@@ -1463,6 +1495,17 @@
       const r = await api('/api/session/switch', {method:'POST', body:JSON.stringify({id})});
       lastApprovalKey = '';
       lastSaveSequence = Number(r.persistence?.save_sequence || 0);
+      try {
+        await api('/api/session/modes', {
+          method: 'POST',
+          body: JSON.stringify({
+            complexity_mode: document.querySelector('input[name="complexityModeCtrl"]:checked')?.value,
+            read_only: $('#readOnlyCtrl').checked
+          })
+        });
+      } catch (e) {
+        console.warn('Failed to sync session modes on switch', e);
+      }
       toast(`${r.saved_current ? 'Saved current · ' : ''}Switched to ${r.session.title}`);
       await refresh();
     } catch (err) {
@@ -1753,9 +1796,15 @@
     codePct = Math.round(((c.code_budget || 8000) / total) * 100) || 50;
     updateSliderUI();
     $('#recentMessages').value = c.recent_messages || 12;
+    $('#contextRecentBreadcrumbs').value = c.context_recent_breadcrumbs || 5;
+    $('#contextMinBuffer').value = c.context_minimum_buffer || 2000;
+    $('#contextSafeBudget').value = c.context_minimum_safe_budget || 4000;
+    $('#contextCodeMaxFloor').value = c.context_code_budget_max_floor || 8000;
+    $('#maxPromptToolOutputBytes').value = c.max_prompt_tool_output_bytes || 30000;
     $('#memoryTopK').value = c.memory_top_k || 8;
     $('#memoryPool').value = c.memory_candidate_pool || 30;
     $('#repairAttempts').value = c.json_repair_attempts || 7;
+    setSelect('#evaluationModeSettings', c.evaluation_mode);
     $('#maxPlanDepth').value = c.max_plan_depth || 5;
     $('#maxExecutionLoops').value = c.max_execution_loops || 80;
     $('#modelTimeout').value = c.model_timeout_seconds || 600;
@@ -1773,6 +1822,7 @@
     $('#memoryRerankGates').value = c.memory_rerank_gates || 3;
     $('#memoryPoolExpansion').value = c.memory_pool_expansion_limit || 4;
     $('#contextRecentBreadcrumbs').value = c.context_recent_breadcrumbs || 5;
+    $('#blindActionThreshold').value = c.blind_action_threshold || 5;
     $('#contextMinBuffer').value = c.context_minimum_buffer || 2000;
     $('#contextSafeBudget').value = c.context_minimum_safe_budget || 4000;
     $('#contextCodeMaxFloor').value = c.context_code_budget_max_floor || 8000;
@@ -1818,8 +1868,14 @@
       code_budget: Math.floor(total * (codePct/100)),
       recent_messages: +$('#recentMessages').value,
       memory_top_k: +$('#memoryTopK').value,
+      context_recent_breadcrumbs: +$('#contextRecentBreadcrumbs').value,
+      context_minimum_buffer: +$('#contextMinBuffer').value,
+      context_minimum_safe_budget: +$('#contextSafeBudget').value,
+      context_code_budget_max_floor: +$('#contextCodeMaxFloor').value,
+      max_prompt_tool_output_bytes: +$('#maxPromptToolOutputBytes').value,
       memory_candidate_pool: +$('#memoryPool').value,
       json_repair_attempts: +$('#repairAttempts').value,
+      evaluation_mode: $('#evaluationModeSettings').value,
       max_plan_depth: +$('#maxPlanDepth').value,
       max_execution_loops: +$('#maxExecutionLoops').value,
       model_timeout_seconds: +$('#modelTimeout').value,
@@ -1837,6 +1893,7 @@
       memory_rerank_gates: +$('#memoryRerankGates').value,
       memory_pool_expansion_limit: +$('#memoryPoolExpansion').value,
       context_recent_breadcrumbs: +$('#contextRecentBreadcrumbs').value,
+      blind_action_threshold: +$('#blindActionThreshold').value,
       context_minimum_buffer: +$('#contextMinBuffer').value,
       context_minimum_safe_budget: +$('#contextSafeBudget').value,
       context_code_budget_max_floor: +$('#contextCodeMaxFloor').value,
@@ -1945,6 +2002,24 @@
       navigator.clipboard.writeText(renderSignatures.context).then(() => toast('Context copied to clipboard!'));
     }
   });
+
+  const modeUpdateHandler = async () => {
+    try {
+      await api('/api/session/modes', {
+        method: 'POST',
+        body: JSON.stringify({
+          complexity_mode: document.querySelector('input[name="complexityModeCtrl"]:checked')?.value,
+          read_only: $('#readOnlyCtrl').checked
+        })
+      });
+      refresh();
+    } catch (err) {
+      toast('Failed to update session mode: ' + err.message, true);
+    }
+  };
+  $$('input[name="complexityModeCtrl"]').forEach(el => el.addEventListener('change', modeUpdateHandler));
+
+  $('#readOnlyCtrl')?.addEventListener('change', modeUpdateHandler);
 
   $('#memorySearchInput')?.addEventListener('input', () => {
     applyMemoryFilter();

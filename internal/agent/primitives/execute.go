@@ -17,7 +17,7 @@ Do not use raw text search or path guessing to understand architecture. You MUST
 For retrieve_memory, you may optionally include "allowed_kinds" (e.g. ["task_summary", "fact", "structural"]) to strictly filter memory results to specific kinds.
 Available tool schemas are provided below.
 Return exactly one of:
-{"action":"tool","reason":"short","tool":{"kind":"execute_process","input":{}}}
+{"action":"tool","reason":"Short explanation of why you are taking this action and where you are in the overall step (acts as your memory trail)","tool":{"kind":"execute_process","input":{}}}
 {"action":"retrieve_memory","reason":"short","query":"semantic search phrase","allowed_kinds":["task_summary","fact"]}
 {"action":"task_summaries","reason":"short"}
 {"action":"ask_user","reason":"short","ask_user_question":"what cannot be determined locally"}
@@ -27,6 +27,7 @@ Return exactly one of:
 type ExecutionDecision struct {
 	Action                string         `json:"action"`
 	Reason                string         `json:"reason"`
+	EvaluateAfter         *bool          `json:"evaluate_after,omitempty"`
 	Query                 string         `json:"query,omitempty"`
 	AllowedKinds          []string       `json:"allowed_kinds,omitempty"`
 	Tool                  *tools.Request `json:"tool,omitempty"`
@@ -35,8 +36,12 @@ type ExecutionDecision struct {
 }
 
 type ExecuteStepInput struct {
-	Step   state.PlanStep
-	Extras []string
+	Step             state.PlanStep
+	PinnedEvaluation string
+	Extras           []string
+	BlindTrail       []string
+	ReadOnly         bool
+	IsFastLane       bool
 }
 
 type ExecuteStepPrimitive struct {
@@ -53,12 +58,36 @@ func NewExecuteStepPrimitive(cfg config.Config, llmClient llm.Client, baseSystem
 	}
 }
 
-func (p *ExecuteStepPrimitive) Execute(ctx context.Context, pc PrimitiveContext, in ExecuteStepInput) (ExecutionDecision, error) {
+func (p *ExecuteStepPrimitive) Execute(ctx context.Context, pc PrimitiveContext, in ExecuteStepInput, evalMode string) (ExecutionDecision, error) {
 	stepJSONBytes, _ := json.Marshal(in.Step)
-	purpose := fmt.Sprintf("CURRENT STEP:\n%s\n\nAVAILABLE TOOLS:\n%s", string(stepJSONBytes), tools.ToolSchema())
+	purpose := fmt.Sprintf("CURRENT STEP:\n%s\n\nAVAILABLE TOOLS:\n%s", string(stepJSONBytes), tools.ToolSchema(in.ReadOnly))
 
 	ctxText := pc.Build(&in.Step, in.Extras, true)
-	user := ctxText + "\nPRIMITIVE INSTRUCTIONS:\n" + executePrompt + "\n\nPRIMITIVE INPUT:\n" + purpose
+	
+	if in.PinnedEvaluation != "" {
+		ctxText += "\n=== PINNED EVALUATION (Your current goal) ===\n" + in.PinnedEvaluation + "\n=============================================\n"
+	}
+	if len(in.BlindTrail) > 0 {
+		ctxText += "\n=== ACTIONS TAKEN SINCE LAST EVALUATION ===\n"
+		for _, bt := range in.BlindTrail {
+			ctxText += bt + "\n"
+		}
+		ctxText += "===========================================\n"
+	}
+
+	prompt := executePrompt
+	if evalMode == "Dynamic" {
+		prompt += `
+
+"evaluate_after": true/false - Set to true immediately after you complete a single cohesive task (e.g., fixing one specific issue, refactoring one component, or running a test suite). If the evaluation lists multiple different problems, do NOT try to fix all of them blindly. Fix ONE problem, then set evaluate_after=true to verify your fix. Set to false ONLY when you need to chain a few fast actions together to solve that single problem (like editing two related files simultaneously).`
+	}
+	if in.IsFastLane {
+		prompt += `
+
+FAST LANE RULE: You are operating in Fast Lane mode. There will be NO final synthesis step to clean up your work. If your task requires outputting massive amounts of data, you MUST use artifact_write/append/patch to use an artifact as a scratchpad. If you create multiple scratchpad artifacts, you are solely responsible for consolidating them into a single final artifact BEFORE you call step_complete. Your step_complete claim should simply act as a pointer (e.g., 'I extracted the data and saved it to final_report.md'). Do NOT attempt to cram massive data into your completion summary.`
+	}
+
+	user := ctxText + "\nPRIMITIVE INSTRUCTIONS:\n" + prompt + "\n\nPRIMITIVE INPUT:\n" + purpose
 
 	var out ExecutionDecision
 	attempts, err := p.llm.ChatJSON(ctx, p.cfg.ModelExecuting, p.baseSystem, user, &out, func() error {

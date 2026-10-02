@@ -75,6 +75,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/quit", s.writeGuard(s.handleQuit))
 	mux.HandleFunc("POST /api/save", s.writeGuard(s.handleSave))
 	mux.HandleFunc("POST /api/session", s.writeGuard(s.handleCreateSession))
+	mux.HandleFunc("POST /api/session/modes", s.writeGuard(s.handleSessionModes))
 	mux.HandleFunc("POST /api/session/switch", s.writeGuard(s.handleSwitchSession))
 	mux.HandleFunc("POST /api/reindex", s.writeGuard(s.handleReindex))
 	mux.HandleFunc("POST /api/debug-dump", s.writeGuard(s.handleDebugDump))
@@ -276,6 +277,28 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	}
 	s.agent.ResetSessionView()
 	writeJSON(w, http.StatusCreated, map[string]any{"ok": true, "saved_current": savedCurrent, "session": info, "sessions": s.store.SessionStatus(), "persistence": s.store.PersistenceStatus()})
+}
+
+func (s *Server) handleSessionModes(w http.ResponseWriter, r *http.Request) {
+	if s.agent.Status().Running {
+		writeErr(w, http.StatusConflict, "cannot change session modes while agent is running")
+		return
+	}
+	var in struct {
+		ComplexityMode string `json:"complexity_mode"`
+		ReadOnly       bool   `json:"read_only"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	s.store.SetSessionModes(in.ComplexityMode, in.ReadOnly)
+	
+	if err := s.store.Save("modes_update"); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 func (s *Server) handleSwitchSession(w http.ResponseWriter, r *http.Request) {

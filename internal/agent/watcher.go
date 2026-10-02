@@ -133,13 +133,29 @@ func (e *Engine) StartWatcher(ctx context.Context) error {
 					return
 				}
 
-				if event.Op&(fsnotify.Write|fsnotify.Create) != 0 {
+				if event.Op&(fsnotify.Write|fsnotify.Create|fsnotify.Remove|fsnotify.Rename) != 0 {
 					if strings.Contains(filepath.Base(event.Name), ".loa-write-") {
 						continue
 					}
+					
 					if strings.Contains(event.Name, string(filepath.Separator)+".loa"+string(filepath.Separator)+"attachments"+string(filepath.Separator)) {
 						go e.healAttachment(event.Name)
 						continue
+					}
+					
+					rel, err := filepath.Rel(e.root, event.Name)
+					if err == nil && rel != "." {
+						if strings.HasPrefix(rel, ".") || strings.Contains(rel, string(filepath.Separator)+".") {
+							continue
+						}
+						if isIgnored(rel) {
+							continue
+						}
+					}
+					if event.Op&fsnotify.Create == fsnotify.Create {
+						if info, err := os.Stat(event.Name); err == nil && info.IsDir() {
+							_ = watcher.Add(event.Name)
+						}
 					}
 					timerMu.Lock()
 					events[event.Name] = true

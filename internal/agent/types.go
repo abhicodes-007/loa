@@ -204,22 +204,8 @@ func validateIntent(r *state.IntentResult) error {
 			return fmt.Errorf("invalid intent %q; allowed values: statement, correction, question, discussion, task", v)
 		}
 	}
-	hasTask := false
-	for _, v := range r.Intents {
-		if v == state.IntentTask {
-			hasTask = true
-			break
-		}
-	}
-	if r.MayModify && !hasTask {
-		return errors.New("may_modify requires task intent")
-	}
-	if r.MayModify && !r.MayInvestigate {
-		return errors.New("may_modify requires may_investigate")
-	}
-	if r.Ambiguous && r.MayModify {
-		return errors.New("ambiguous intent cannot authorize modification before clarification")
-	}
+
+
 	return needReason(r.Reason)
 }
 

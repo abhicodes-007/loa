@@ -9,10 +9,10 @@ import (
 )
 
 const intentPrompt = `Classify the user's latest message. Multiple intents may be present. "answers_pending_question" is contextual, not an intent.
-Set may_investigate when reading/searching project or memory could help. Set may_modify only when the user has clearly authorized implementation/modification. Any direct instruction to change the project must include the task intent, even when it is also a correction. If a message mixes discussion/questioning with an unsettled implementation task, prefer discussion first and set may_modify=false. Mark ambiguous if the expected behavior is genuinely unclear.
+Any direct instruction to change the project must include the task intent, even when it is also a correction. If a message mixes discussion/questioning with an unsettled implementation task, prefer discussion first. Mark ambiguous if the expected behavior is genuinely unclear.
 Allowed intent values are exactly: statement, correction, question, discussion, task.
 If the intent includes "task", you MUST provide a concise 3-5 word task_title summarizing the goal.
-Return JSON: {"intents":["statement"],"task_title":"...","answers_pending_question":bool,"may_investigate":bool,"may_modify":bool,"ambiguous":bool,"reason":"short"}`
+Return JSON: {"intents":["statement"],"task_title":"...","answers_pending_question":bool,"ambiguous":bool,"reason":"short"}`
 
 type IntentInput struct {
 	UserText string
