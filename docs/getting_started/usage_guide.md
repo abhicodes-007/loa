@@ -13,7 +13,14 @@ For the beginning it's recommended to just choose a single model for all inferen
 ![Initial Setup Wizard](initial_setup.png)
 
 This wizard appears the very first time you launch Loa. Here you define your global API endpoint (e.g., `http://127.0.0.1:11434` for Ollama) and select the models Loa will use.
-- **Tip:** You can click the **TEST CONFIGURATION** button at the bottom to ensure Loa can successfully reach your models. This is especially important to verify that you have selected a valid, dedicated embedding model (like `mxbai-embed-large`) for the Embedding Model slot since embedding is used for handling memories and internal searches.
+- **Local CPU Embeddings:** You can optionally select a `Local Embedding Model Path` from the dropdown if you downloaded a model during the `setup.sh` script. This runs semantic searches natively on your CPU, which is highly recommended for speed and offline privacy. Your selected path will automatically be saved using the `~/` prefix (e.g., `~/.loa/embedding-models/mxbai.gguf`) to ensure it remains perfectly portable across different users, machines, and the sandbox.
+- **Tip:** You can click the **TEST CONFIGURATION** button at the bottom to ensure Loa can successfully reach your models. This is especially important to verify that you have selected a valid, dedicated embedding model for the Embedding Model slot since embedding is used for handling memories and internal searches.
+
+### Sandbox & Host State
+If you run Loa via `loa-sandbox`, the container seamlessly shares directories with your host to preserve state:
+- **Global Settings:** Your host's `~/.config/loa` is mounted **Read-Only** into the sandbox. The sandbox will load your global configuration, but it is explicitly prevented from overwriting your host's global settings.
+- **Models & Tools:** Your host's `~/.loa` is mounted so the sandbox can directly access the `ast-grep` binary and any local embedding models you downloaded during setup.
+- **Project Configuration:** The project-level `.loa/config.json` inside your workspace is fully Read/Write for both host and sandbox execution.
 
 ### 2. The Project Setup Wizard
 *(Configure project-specific boundaries)*

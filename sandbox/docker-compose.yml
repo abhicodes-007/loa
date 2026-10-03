@@ -13,7 +13,9 @@ services:
       # Mount the target project dynamically
       - ${TARGET_PROJECT:-./workspace}:/workspace
       # Mount the global config dynamically
-      - ${CONFIG_MOUNT:-./config:/home/loa/.config/loa:rw}
+      - ${CONFIG_MOUNT:-./config:/home/loa/.config/loa:ro}
+      # Mount the entire .loa directory (models, binaries) at exact host path
+      - ${LOA_DIR_MOUNT:-./loa_env:/home/loa/.loa:ro}
     # Allow communication to the host on Linux via host.docker.internal
     extra_hosts:
       - "host.docker.internal:host-gateway"

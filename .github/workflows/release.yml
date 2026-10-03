@@ -30,13 +30,28 @@ jobs:
         with:
           go-version: "1.23.0" # Match the Dockerfile/setup version
 
+      - name: Install Cross-Compiler for ARM64
+        if: matrix.goarch == 'arm64'
+        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+
       - name: Build Loa Binary
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
-          CGO_ENABLED: 0
+          CGO_ENABLED: 1
+          CC: ${{ matrix.goarch == 'arm64' && 'aarch64-linux-gnu-gcc' || 'gcc' }}
+          CXX: ${{ matrix.goarch == 'arm64' && 'aarch64-linux-gnu-g++' || 'g++' }}
         run: |
-          go build -o loa ./cmd/loa
+          LLAMA_GO_VER=$(go list -m -f '{{.Version}}' github.com/tcpipuk/llama-go)
+          if [ -n "$LLAMA_GO_VER" ]; then
+            TMP_LLAMA_DIR=$(mktemp -d)
+            LLAMA_GO_COMMIT=$(echo "$LLAMA_GO_VER" | awk -F'-' '{print $NF}')
+            git clone https://github.com/tcpipuk/llama-go.git "$TMP_LLAMA_DIR"
+            (cd "$TMP_LLAMA_DIR" && git checkout "$LLAMA_GO_COMMIT" && git submodule update --init --recursive && make libbinding.a)
+            export C_INCLUDE_PATH="$TMP_LLAMA_DIR"
+            export LIBRARY_PATH="$TMP_LLAMA_DIR"
+          fi
+          go build -tags localembed -o loa ./cmd/loa
 
       - name: Create Release Bundle
         run: |

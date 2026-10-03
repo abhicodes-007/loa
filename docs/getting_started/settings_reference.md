@@ -14,7 +14,9 @@ This tab defines the foundational connection to your AI provider (e.g., Ollama).
 - **Role-Specific Models:** Loa can route different types of cognitive tasks to different models. For example, you might want a massive, slow model for **Planning**, but a smaller, lightning-fast model for **Crawling** and **Executing**. 
   - *Note:* The "Conversation" model role is specifically used as the **Analysis/Background Model**. It powers the lightweight background primitives (e.g., assessing blind execution limits, determining intents), making it crucial for fast background decision-making.
 - **Use one model for all inferences:** If checked, this forces Loa to use your primary model for all tasks, ignoring the individual dropdowns.
-- **Embedding Model:** Defines the model used to vectorize your codebase for semantic search. **This must be a dedicated embedding model (e.g., `nomic-embed-text`)!**
+- **Embedding Engine:** Defines how text is vectorized for semantic searches. You can choose an external `api` or a `local` CPU engine.
+- **Embedding Model:** Defines the model used if the engine is set to `api`. **This must be a dedicated embedding model (e.g., `nomic-embed-text`)!**
+- **Local Embedding Model Path:** Defines the GGUF file used if the engine is set to `local`. If you downloaded a model during `setup.sh`, it will appear here. The path is intentionally saved using the `~/` prefix (e.g., `~/.loa/embedding-models/mxbai.gguf`) so it remains perfectly portable when shared with team members or when running inside the `loa-sandbox`.
 - **Execution Limits & Evaluation:**
   - **Evaluation Mode:** Choose between *Strict* (evaluates every step) and *Dynamic* (allows the agent to execute tightly coupled actions "blindly" for speed).
   - **Blind Action Threshold:** When in Dynamic mode, this dictates the maximum number of consecutive steps Loa can execute blindly before the background supervisor LLM forces a deep evaluation.

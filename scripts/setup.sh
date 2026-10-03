@@ -59,7 +59,19 @@ fi
 
 if [ $LOCAL_MODE -eq 1 ]; then
     echo "Building Loa from source (--local mode)..."
-    go build -o "$BIN_DIR/loa" ./cmd/loa
+    # Compile llama-go bindings
+    LLAMA_GO_VER=$(go list -m -f '{{.Version}}' github.com/tcpipuk/llama-go)
+    if [ -n "$LLAMA_GO_VER" ]; then
+        echo "Compiling local embedding C++ bindings..."
+        TMP_LLAMA_DIR=$(mktemp -d)
+        LLAMA_GO_COMMIT=$(echo "$LLAMA_GO_VER" | awk -F'-' '{print $NF}')
+        git clone https://github.com/tcpipuk/llama-go.git "$TMP_LLAMA_DIR" >/dev/null 2>&1
+        (cd "$TMP_LLAMA_DIR" && git checkout "$LLAMA_GO_COMMIT" >/dev/null 2>&1 && git submodule update --init --recursive >/dev/null 2>&1 && make libbinding.a >/dev/null 2>&1) || echo "Warning: Binding compilation may have failed."
+        export C_INCLUDE_PATH="$TMP_LLAMA_DIR"
+        export LIBRARY_PATH="$TMP_LLAMA_DIR"
+    fi
+
+    go build -tags localembed -o "$BIN_DIR/loa" ./cmd/loa
     echo "Loa compiled successfully to $BIN_DIR/loa"
 else
     echo "Downloading latest Loa release for $LOA_ARCH..."
@@ -146,6 +158,42 @@ if [[ "$INSTALL_SANDBOX" =~ ^[Yy]$ ]]; then
     echo "To use it from anywhere, add this alias to your ~/.bashrc or ~/.zshrc:"
     echo "  alias loa-sandbox='$SANDBOX_TARGET/run.sh'"
 fi
+
+    # Embedding Model Setup
+    echo "================================================================="
+    echo "=== Embedding Model Setup ==="
+    echo "Loa can run text embeddings locally on your CPU."
+    echo "This requires a GGUF format embedding model."
+    echo "Please select a default model to download now, or skip:"
+    echo "1) nomic-embed-text-v1.5 (F16, ~274MB) - General purpose, up to 8192 context"
+    echo "2) mxbai-embed-large-v1 (F16, ~670MB) - High performance, 512 context"
+    echo "3) Skip (I will provide my own or use an external API)"
+    echo "================================================================="
+    read -p "Select option [1-3]: " MODEL_CHOICE < /dev/tty
+
+    MODELS_DIR="$HOME/.loa/embedding-models"
+    mkdir -p "$MODELS_DIR"
+
+    if [ "$MODEL_CHOICE" == "1" ]; then
+        echo "Downloading nomic-embed-text-v1.5.f16.gguf..."
+        if command -v wget >/dev/null 2>&1; then
+            wget -q --show-progress -O "$MODELS_DIR/nomic-embed-text-v1.5.f16.gguf" "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.f16.gguf"
+        else
+            curl -L -o "$MODELS_DIR/nomic-embed-text-v1.5.f16.gguf" "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.f16.gguf"
+        fi
+        echo "Model downloaded to $MODELS_DIR/nomic-embed-text-v1.5.f16.gguf"
+    elif [ "$MODEL_CHOICE" == "2" ]; then
+        echo "Downloading mxbai-embed-large-v1-f16.gguf..."
+        if command -v wget >/dev/null 2>&1; then
+            wget -q --show-progress -O "$MODELS_DIR/mxbai-embed-large-v1-f16.gguf" "https://huggingface.co/ChristianAzinn/mxbai-embed-large-v1-gguf/resolve/main/mxbai-embed-large-v1_fp16.gguf"
+        else
+            curl -L -o "$MODELS_DIR/mxbai-embed-large-v1-f16.gguf" "https://huggingface.co/ChristianAzinn/mxbai-embed-large-v1-gguf/resolve/main/mxbai-embed-large-v1_fp16.gguf"
+        fi
+        echo "Model downloaded to $MODELS_DIR/mxbai-embed-large-v1-f16.gguf"
+    else
+        echo "Skipping model download. You can manually place GGUF models in $MODELS_DIR"
+        echo "or configure an external API endpoint in Loa settings."
+    fi
 
     # Cleanup
     if [ -n "$TMP_DIR" ] && [ -d "$TMP_DIR" ]; then

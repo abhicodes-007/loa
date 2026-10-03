@@ -19,6 +19,7 @@ import (
 
 	"github.com/laughingmandev/loa/internal/agent"
 	"github.com/laughingmandev/loa/internal/config"
+	"github.com/laughingmandev/loa/internal/embedder"
 	"github.com/laughingmandev/loa/internal/index"
 	"github.com/laughingmandev/loa/internal/llm"
 	"github.com/laughingmandev/loa/internal/memory"
@@ -66,6 +67,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/bootstrap", s.handleBootstrap)
 	mux.HandleFunc("GET /api/snapshot", s.handleSnapshot)
 	mux.HandleFunc("GET /api/models", s.handleModels)
+	mux.HandleFunc("GET /api/models/local", s.handleLocalModels)
 	mux.HandleFunc("POST /api/message", s.writeGuard(s.handleMessage))
 	mux.HandleFunc("POST /api/approval", s.writeGuard(s.handleApproval))
 	mux.HandleFunc("POST /api/plan/approval", s.writeGuard(s.handlePlanApproval))
@@ -170,6 +172,33 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeErr(w, http.StatusBadGateway, err.Error())
 		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"models": models})
+}
+
+func (s *Server) handleLocalModels(w http.ResponseWriter, r *http.Request) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	modelsDir := filepath.Join(home, ".loa", "embedding-models")
+	entries, err := os.ReadDir(modelsDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			writeJSON(w, http.StatusOK, map[string]any{"models": []string{}})
+			return
+		}
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	var models []string
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".gguf") {
+			// Save paths using ~/ prefix so they are portable across different users/hosts
+			portablePath := filepath.Join("~", ".loa", "embedding-models", entry.Name())
+			models = append(models, portablePath)
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"models": models})
 }
@@ -741,10 +770,12 @@ func (s *Server) handleMemoryPurge(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleTestLLM(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		URL            string `json:"ollama_url"`
-		Key            string `json:"api_key"`
-		ChatModel      string `json:"chat_model"`
-		EmbeddingModel string `json:"embedding_model"`
+		URL                    string `json:"ollama_url"`
+		Key                    string `json:"api_key"`
+		ChatModel              string `json:"chat_model"`
+		EmbeddingEngine        string `json:"embedding_engine"`
+		EmbeddingModel         string `json:"embedding_model"`
+		LocalEmbeddingModelPath string `json:"local_embedding_model_path"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid request")
@@ -757,17 +788,41 @@ func (s *Server) handleTestLLM(w http.ResponseWriter, r *http.Request) {
 	testCfg.EmbeddingModel = req.EmbeddingModel
 	testClient := llm.New(func() config.Config { return testCfg })
 
-	if req.ChatModel != "" {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		_, err := testClient.ChatText(ctx, req.ChatModel, "You are a test bot. Respond with 'ok'.", "Respond with 'ok'")
-		if err != nil {
-			writeErr(w, http.StatusBadRequest, fmt.Sprintf("Chat model test failed for '%s': %v", req.ChatModel, err))
-			return
-		}
+	if req.ChatModel == "" {
+		writeErr(w, http.StatusBadRequest, "Inference model is required for testing")
+		return
 	}
 
-	if req.EmbeddingModel != "" {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_, err := testClient.ChatText(ctx, req.ChatModel, "You are a test bot. Respond with 'ok'.", "Respond with 'ok'")
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, fmt.Sprintf("Chat model test failed for '%s': %v", req.ChatModel, err))
+		return
+	}
+
+	if req.EmbeddingEngine == "local" {
+		if req.LocalEmbeddingModelPath == "" {
+			writeErr(w, http.StatusBadRequest, "Local embedding model path is required when using Local CPU engine")
+			return
+		}
+		emb, err := embedder.NewLocalEmbedder(req.LocalEmbeddingModelPath)
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, fmt.Sprintf("Failed to load local embedding model: %v", err))
+			return
+		}
+		defer emb.Close()
+		
+		vec, err := emb.Embed("test embedding")
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, fmt.Sprintf("Failed to generate embedding with local model: %v", err))
+			return
+		}
+		if len(vec) == 0 {
+			writeErr(w, http.StatusBadRequest, "Local embedding model returned 0 vector dimensions")
+			return
+		}
+	} else if req.EmbeddingModel != "" {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		vec, err := testClient.Embed(ctx, "test embedding")
