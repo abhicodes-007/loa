@@ -41,14 +41,23 @@ jobs:
           CGO_ENABLED: 1
           CC: ${{ matrix.goarch == 'arm64' && 'aarch64-linux-gnu-gcc' || 'gcc' }}
           CXX: ${{ matrix.goarch == 'arm64' && 'aarch64-linux-gnu-g++' || 'g++' }}
-          CMAKE_ARGS: ${{ matrix.goarch == 'arm64' && '-DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=aarch64' || '' }}
         run: |
           LLAMA_GO_VER=$(go list -m -f '{{.Version}}' github.com/tcpipuk/llama-go)
           if [ -n "$LLAMA_GO_VER" ]; then
             TMP_LLAMA_DIR=$(mktemp -d)
             LLAMA_GO_COMMIT=$(echo "$LLAMA_GO_VER" | awk -F'-' '{print $NF}')
             git clone https://github.com/tcpipuk/llama-go.git "$TMP_LLAMA_DIR"
-            (cd "$TMP_LLAMA_DIR" && git checkout "$LLAMA_GO_COMMIT" && git submodule update --init --recursive && make libbinding.a)
+            (
+              cd "$TMP_LLAMA_DIR"
+              git checkout "$LLAMA_GO_COMMIT"
+              git submodule update --init --recursive
+              if [ "$GOARCH" = "arm64" ]; then
+                sed -i 's/-march=native -mtune=native//g' Makefile
+                sed -i 's/-mcpu=native//g' Makefile
+                sed -i 's/cmake \.\.\/llama\.cpp/cmake ..\/llama.cpp -DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=aarch64 -DGGML_NATIVE=OFF/g' Makefile
+              fi
+              make libbinding.a
+            )
             export C_INCLUDE_PATH="$TMP_LLAMA_DIR"
             export LIBRARY_PATH="$TMP_LLAMA_DIR"
           fi
