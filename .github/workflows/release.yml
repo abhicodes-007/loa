@@ -41,6 +41,7 @@ jobs:
           CGO_ENABLED: 1
           CC: ${{ matrix.goarch == 'arm64' && 'aarch64-linux-gnu-gcc' || 'gcc' }}
           CXX: ${{ matrix.goarch == 'arm64' && 'aarch64-linux-gnu-g++' || 'g++' }}
+          CMAKE_ARGS: ${{ matrix.goarch == 'arm64' && '-DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=aarch64' || '' }}
         run: |
           LLAMA_GO_VER=$(go list -m -f '{{.Version}}' github.com/tcpipuk/llama-go)
           if [ -n "$LLAMA_GO_VER" ]; then
