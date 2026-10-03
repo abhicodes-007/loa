@@ -353,7 +353,7 @@ type AgentState struct {
 }
 
 func NewAgentState() *AgentState {
-	return &AgentState{Version: 2, NextID: 1}
+	return &AgentState{Version: 2, NextID: 1, ComplexityMode: "Fast"}
 }
 
 func (s *AgentState) ID() uint64 {

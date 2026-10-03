@@ -30,7 +30,9 @@ type Config struct {
 	ModelConversation     string           `json:"model_conversation"`
 	ModelPlanning         string           `json:"model_planning"`
 	ModelExecuting        string           `json:"model_executing"`
+	EmbeddingEngine       string           `json:"embedding_engine"`
 	EmbeddingModel        string           `json:"embedding_model"`
+	LocalEmbeddingModelPath string         `json:"local_embedding_model_path"`
 	ContextBudget         int              `json:"context_budget"`
 	OutputReserve         int              `json:"output_reserve"`
 	CodeBudget            int              `json:"code_budget"`
@@ -66,16 +68,21 @@ type Config struct {
 }
 
 func Default() Config {
+	home, _ := os.UserHomeDir()
+	defaultLocalEmbed := filepath.Join(home, ".loa", "embedding-models", "nomic-embed-text-v1.5.f16.gguf")
+
 	return Config{
 		OllamaURL:             "http://127.0.0.1:11434",
-		ContextBudget:         16000,
+		EmbeddingEngine:       "local",
+		LocalEmbeddingModelPath: defaultLocalEmbed,
+		ContextBudget:         100000,
 		OutputReserve:         4000,
 		CodeBudget:            8000,
 		RecentMessages:        12,
 		MemoryTopK:            8,
 		MemoryCandidatePool:   30,
 		JSONRepairAttempts:    7,
-		MaxPlanDepth:          5,
+		MaxPlanDepth:          25,
 		MaxExecutionLoops:     80,
 		ModelTimeoutSeconds:   600,
 		CommandTimeoutSeconds:          120,
@@ -97,7 +104,7 @@ func Default() Config {
 		LLMPollingTimeoutSeconds:       15,
 		ServerReadHeaderTimeoutSeconds: 10,
 		BlindActionThreshold:           8,
-		EvaluationMode:                 "Immediate",
+		EvaluationMode:                 "Dynamic",
 		Permissions: PermissionConfig{
 			Mode: PermissionSelected,
 			AskFor: map[state.ToolKind]bool{
@@ -208,7 +215,7 @@ func (c *Config) normalize() {
 		c.OllamaURL = "http://127.0.0.1:11434"
 	}
 	if c.ContextBudget <= 0 {
-		c.ContextBudget = 16000
+		c.ContextBudget = 100000
 	}
 	if c.OutputReserve <= 0 {
 		c.OutputReserve = 4000
@@ -229,7 +236,7 @@ func (c *Config) normalize() {
 		c.JSONRepairAttempts = 7
 	}
 	if c.MaxPlanDepth <= 0 {
-		c.MaxPlanDepth = 5
+		c.MaxPlanDepth = 25
 	}
 	if c.ModelTimeoutSeconds <= 0 {
 		c.ModelTimeoutSeconds = 600

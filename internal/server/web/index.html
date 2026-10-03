@@ -157,7 +157,7 @@
         <div class="context-tools" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid var(--border);">
           <div class="budget-meter" style="flex: 1; margin-right: 15px; position: relative; height: 16px; background: #0c2634; border-radius: 8px; overflow: hidden; display: flex; align-items: center; justify-content: center;">
             <div id="budgetMeterFill" style="position: absolute; left: 0; top: 0; bottom: 0; width: 0%; background: var(--cyan); transition: width 0.3s; opacity: 0.3;"></div>
-            <span id="budgetMeterText" style="position: relative; font-size: 10px; font-weight: bold; color: var(--text); z-index: 1;">0 / 16000 chars</span>
+            <span id="budgetMeterText" style="position: relative; font-size: 10px; font-weight: bold; color: var(--text); z-index: 1;">0 / 100000</span>
           </div>
           <button id="copyContextBtn" type="button" style="padding: 4px 10px; font-size: 10px; font-weight: bold;">COPY CONTEXT</button>
         </div>
@@ -268,7 +268,14 @@
           <label>Conversation model<select id="modelConversation"></select></label>
           <label>Planning model<select id="modelPlanning"></select></label>
           <label>Executing model<select id="modelExecuting"></select></label>
-          <label title="Requires a dedicated embedding model like nomic-embed-text">Embedding model<select id="embeddingModel"></select></label>
+          <label>Embedding Engine
+            <select id="embeddingEngine">
+              <option value="local">Local CPU (Recommended)</option>
+              <option value="openapi">External API (OpenAPI)</option>
+            </select>
+          </label>
+          <label id="lblLocalEmbeddingModelPath" title="Absolute path to the GGUF model for local CPU embeddings">Local Model Path<select id="localEmbeddingModelPath"></select></label>
+          <label id="lblEmbeddingModel" title="Requires a dedicated embedding model like nomic-embed-text">External Embedding model<select id="embeddingModel"></select></label>
           <div class="full" style="grid-column:1/-1;margin-top:10px;margin-bottom:10px">
             <button id="testSettingsLlmBtn" type="button" class="secondary" style="width:100%;">TEST CONFIGURATION</button>
             <div id="testSettingsLlmResult" style="margin-top:8px; font-size:12px; text-align:center;"></div>
@@ -277,7 +284,7 @@
           <label title="Evaluation: Strict evaluates every action. Dynamic lets the agent batch multiple actions.">Evaluation Mode
             <select id="evaluationModeSettings">
               <option value="Immediate">Strict</option>
-              <option value="Dynamic">Dynamic</option>
+              <option value="Dynamic" selected>Dynamic</option>
             </select>
           </label>
           <label title="How many blind actions to allow before the soft nudge primitive triggers">Blind Action Threshold<input id="blindActionThreshold" type="number" min="1"></label>
@@ -390,12 +397,19 @@
         <label>Conversation Model<select id="setupModelConversation" required></select></label>
         <label>Planning Model<select id="setupModelPlanning" required></select></label>
         <label>Executing Model<select id="setupModelExecuting" required></select></label>
-        <label title="Requires a dedicated embedding model like nomic-embed-text">Embedding Model<select id="setupEmbedding" required></select></label>
+        <label>Embedding Engine
+          <select id="setupEmbeddingEngine">
+            <option value="local">Local CPU (Recommended)</option>
+            <option value="openapi">External API (OpenAPI)</option>
+          </select>
+        </label>
+        <label id="lblSetupLocalEmbeddingModelPath" title="Absolute path to the GGUF model for local CPU embeddings">Local Model Path<select id="setupLocalEmbeddingModelPath"></select></label>
+        <label id="lblSetupEmbedding" title="Requires a dedicated embedding model like nomic-embed-text">External Embedding Model<select id="setupEmbedding"></select></label>
         <div class="full" style="grid-column:1/-1;margin-bottom:10px">
           <button id="testSetupLlmBtn" type="button" class="secondary" style="width:100%;">TEST CONFIGURATION</button>
           <div id="testSetupLlmResult" style="margin-top:8px; font-size:12px; text-align:center;"></div>
         </div>
-        <label class="full" style="grid-column:1/-1">Total Context Budget (Tokens)<input id="setupBudget" type="number" min="4096" value="16000"></label>
+        <label class="full" style="grid-column:1/-1">Total Context Budget (Tokens)<input id="setupBudget" type="number" min="4096" value="100000"></label>
       </div>
       <div class="modal-actions" style="margin-top:20px">
         <button id="setupSaveBtn" type="button" class="primary" style="width:100%">SAVE GLOBAL DEFAULTS & START</button>

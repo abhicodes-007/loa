@@ -40,6 +40,8 @@ In the current landscape of AI coding tools, most fall into two categories: simp
 
 The setup script automatically downloads the binary and will print the required terminal aliases for you to manually add to your `.bashrc` or `.zshrc` (we intentionally don't mess with your environment files automatically). It will also optionally prompt you to install the `loa-sandbox` (which requires a target directory to store the relevant sandbox docker files).
 
+During setup, you will also be prompted to automatically download a GGUF embedding model (e.g., `nomic-embed-text` or `mxbai-embed-large`). It is highly recommended to do this so Loa can perform high-speed, local CPU embeddings for semantic search. Alternatively you can configure on first start the openapi compatible api to be used for embedding calls - tho the cpu variant is recommended.
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/laughingmandev/loa/main/scripts/setup.sh | bash
 ```
@@ -61,7 +63,8 @@ bash scripts/setup.sh --local
 3. Launch the agent. You have two execution modes:
 
 **Sandboxed Mode (Recommended):**
-Runs the agent inside the Docker container, mounting your project directory safely.
+Runs the agent inside the Docker container, mounting your project directory safely. 
+*Note: The sandbox automatically detects if you have a compatible Linux host binary and uses it for instant boot times. For macOS/Windows users, it gracefully falls back to compiling the Linux binary from source inside the container.*
 ```bash
 cd /path/to/your/project
 loa-sandbox
@@ -132,7 +135,7 @@ A: Loa is designed to solve a few very specific problems exceptionally well, rat
 A: If you want to contribute, please create an issue *before* writing any code. Because Loa has a very strict target scope, you must ensure your proposed feature aligns with the project's philosophy. This prevents you from wasting time writing code that will ultimately be rejected.
 
 **Q: Why is the target architecture support so small?**  
-A: Loa is built by a single developer. For example, I don't own a Mac environment, which makes it impossible for me to properly test and guarantee support for macOS. Support for other architectures and operating systems will likely come if requested by users who are willing to actively provide test environments and feedback.
+A: Loa is built by a single developer. While I don't own a Mac or Windows environment to properly test native binaries, the `loa-sandbox` container solves this by providing a guaranteed Linux runtime that works flawlessly across macOS and Windows via Docker. Support for native OS architectures will likely come if requested by users willing to actively provide test environments and feedback.
 
 ## Contributing
 Loa is actively developed. If you want to contribute, please refer to the architecture documentation to understand the execution pipeline before submitting PRs, and ensure you open an issue to discuss feature scope first!

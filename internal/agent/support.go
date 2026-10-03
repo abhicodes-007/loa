@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/laughingmandev/loa/internal/config"
+	"github.com/laughingmandev/loa/internal/embedder"
 	"github.com/laughingmandev/loa/internal/memory"
 	"github.com/laughingmandev/loa/internal/agent/primitives"
 	"github.com/laughingmandev/loa/internal/state"
@@ -324,12 +325,43 @@ func (e *Engine) addMemory(ctx context.Context, kind state.MemoryKind, text stri
 	}
 }
 func (e *Engine) tryEmbed(ctx context.Context, text string) ([]float32, error) {
+	if e.cfg.Get().EmbeddingEngine == "local" {
+		e.mu.Lock()
+		path := e.cfg.Get().LocalEmbeddingModelPath
+		if path != "" && path != e.loadedLocalEmbeddingModelPath {
+			if e.localEmbedder != nil {
+				e.localEmbedder.Close()
+				e.localEmbedder = nil
+			}
+			emb, err := embedder.NewLocalEmbedder(path)
+			if err == nil {
+				e.localEmbedder = emb
+				e.loadedLocalEmbeddingModelPath = path
+			} else {
+				e.log(state.LogSystem, "Init", "lazy loading local embedder failed", path, err.Error())
+			}
+		}
+		e.mu.Unlock()
+
+		if e.localEmbedder != nil {
+			emb, err := e.localEmbedder.Embed(text)
+			if err == nil {
+				e.localEmbeddings.Add(1)
+			}
+			if err != nil {
+				e.log(state.LogSystem, "Embedding", "local embedding request failed", text, err.Error())
+			}
+			return emb, err
+		}
+		return nil, errors.New("local embedding model is not loaded (check configuration)")
+	}
+
 	if e.cfg.Get().EmbeddingModel == "" {
 		return nil, errors.New("no embedding model selected")
 	}
 	emb, err := e.llm.Embed(ctx, text)
 	if err != nil {
-		e.log(state.LogSystem, "Embedding", "embedding request failed", text, err.Error())
+		e.log(state.LogSystem, "Embedding", "openapi embedding request failed", text, err.Error())
 	}
 	return emb, err
 }

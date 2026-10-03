@@ -35,7 +35,16 @@ WORKDIR /opt/sandbox_ctx
 COPY . /opt/sandbox_ctx
 RUN if [ -d "./loa-src" ] && [ -f "./loa-src/go.mod" ]; then \
         echo "Building from source..." && \
-        cd ./loa-src && go build -o /usr/local/bin/loa ./cmd/loa; \
+        cd ./loa-src && \
+        LLAMA_GO_VER=$(go list -m -f '{{.Version}}' github.com/tcpipuk/llama-go) && \
+        if [ -n "$LLAMA_GO_VER" ]; then \
+            TMP_LLAMA_DIR=$(mktemp -d) && \
+            LLAMA_GO_COMMIT=$(echo "$LLAMA_GO_VER" | awk -F'-' '{print $NF}') && \
+            git clone https://github.com/tcpipuk/llama-go.git "$TMP_LLAMA_DIR" && \
+            (cd "$TMP_LLAMA_DIR" && git checkout "$LLAMA_GO_COMMIT" && git submodule update --init --recursive && make libbinding.a) && \
+            export C_INCLUDE_PATH="$TMP_LLAMA_DIR" && export LIBRARY_PATH="$TMP_LLAMA_DIR"; \
+        fi && \
+        go build -tags localembed -o /usr/local/bin/loa ./cmd/loa; \
     elif [ -f "./loa-bin" ]; then \
         echo "Using pre-compiled binary..." && \
         cp ./loa-bin /usr/local/bin/loa && chmod +x /usr/local/bin/loa; \

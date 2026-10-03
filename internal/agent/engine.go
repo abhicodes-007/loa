@@ -11,10 +11,12 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/laughingmandev/loa/internal/agent/primitives"
 	"github.com/laughingmandev/loa/internal/config"
+	"github.com/laughingmandev/loa/internal/embedder"
 	"github.com/laughingmandev/loa/internal/index"
 	"github.com/laughingmandev/loa/internal/llm"
 	"github.com/laughingmandev/loa/internal/memory"
@@ -43,11 +45,14 @@ type Engine struct {
 	sessionStores map[string]*memory.Store
 	cfg           *config.Manager
 	llm           llm.Client
+	localEmbedder embedder.Embedder
 	tools         *tools.Manager
 	index         *index.Index
 
-	mu                   sync.Mutex
-	running              bool
+	mu                            sync.Mutex
+	localEmbeddings               atomic.Uint64
+	loadedLocalEmbeddingModelPath string
+	running                       bool
 	systemTaskReason     string
 	needsProjectSetup    bool
 	pauseRequested       bool
@@ -108,7 +113,28 @@ func New(root string, st *state.Store, mem *memory.Store, cfg *config.Manager, l
 			return snap.SessionID
 		}
 	}
-	e := &Engine{root: root, store: st, memStore: mem, sessionStores: make(map[string]*memory.Store), cfg: cfg, llm: lc, tools: tm, index: idx, approvals: map[uint64]approvalRequest{}, runAllowed: map[string]struct{}{}, inferenceByPrimitive: map[string]uint64{}}
+	e := &Engine{
+		root:                 root,
+		store:                st,
+		memStore:             mem,
+		sessionStores:        make(map[string]*memory.Store),
+		cfg:                  cfg,
+		llm:                  lc,
+		tools:                tm,
+		index:                idx,
+		approvals:            map[uint64]approvalRequest{},
+		runAllowed:           map[string]struct{}{},
+		inferenceByPrimitive: map[string]uint64{},
+	}
+	
+	if cfg.Get().EmbeddingEngine == "local" && cfg.Get().LocalEmbeddingModelPath != "" {
+		if emb, err := embedder.NewLocalEmbedder(cfg.Get().LocalEmbeddingModelPath); err == nil {
+			e.localEmbedder = emb
+			e.loadedLocalEmbeddingModelPath = cfg.Get().LocalEmbeddingModelPath
+		} else {
+			e.log(state.LogSystem, "Init", "failed to initialize local embedder", cfg.Get().LocalEmbeddingModelPath, err.Error())
+		}
+	}
 	st.PlanMutationLogger = func(stack string, before, after []byte) {
 		e.log(state.LogSystem, "PlanMutation", "Plan was mutated by backend process", "", "BEFORE:\n"+string(before)+"\n\nAFTER:\n"+string(after)+"\n\nSTACK TRACE:\n"+stack)
 	}
@@ -141,6 +167,7 @@ func (e *Engine) Status() Status {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	stats := e.llm.Stats()
+	stats.Embeddings += e.localEmbeddings.Load()
 	stats.InferenceByPrimitive = make(map[string]uint64, len(e.inferenceByPrimitive))
 	for k, v := range e.inferenceByPrimitive {
 		stats.InferenceByPrimitive[k] = v
@@ -641,7 +668,7 @@ func (e *Engine) runTask(ctx context.Context, goal string, mayModify bool, title
 	e.store.SetActiveTask(task)
 
 	planningExtras := []string{}
-	if e.cfg.Get().EmbeddingModel != "" {
+	if e.cfg.Get().EmbeddingEngine == "local" || e.cfg.Get().EmbeddingModel != "" {
 		if cands, err := e.retrieveMemory(ctx, goal, nil); err == nil && len(cands) > 0 {
 			planningExtras = append(planningExtras, "RELEVANT PRIOR MEMORY FOR PLANNING:\n"+cands)
 		}

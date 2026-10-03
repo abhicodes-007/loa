@@ -528,7 +528,14 @@
       ensureSessionDialog(sessions);
     }
 
-    if ((!x.config?.model_crawling || !x.config?.embedding_model) && !initialSetupComplete) {
+    let hasEmbedding = false;
+    if (x.config?.embedding_engine === 'local') {
+      hasEmbedding = !!x.config?.local_embedding_model_path;
+    } else {
+      hasEmbedding = !!x.config?.embedding_model;
+    }
+
+    if ((!x.config?.model_crawling || !hasEmbedding) && !initialSetupComplete) {
       if (!$('#globalSetupDialog').open) {
         $('#globalSetupDialog').showModal();
         $('#setupUrl').value = x.config?.ollama_url || 'http://127.0.0.1:11434';
@@ -884,7 +891,7 @@
     const out = $('#context');
     if (out) out.innerHTML = formattedText;
 
-    const budget = snapshot?.config?.context_budget || 16000;
+    const budget = snapshot?.config?.context_budget || 100000;
     const tokens = Math.floor((text || '').length / 4);
     const meterFill = $('#budgetMeterFill');
     const meterText = $('#budgetMeterText');
@@ -1516,8 +1523,12 @@
 
   async function openSettings() {
     try {
-      const m = await api('/api/models');
+      const [m, localM] = await Promise.all([
+        api('/api/models'),
+        api('/api/models/local')
+      ]);
       populateModels(m.models || []);
+      populateLocalModels(localM.models || []);
       fillSettings(snapshot?.config || {}, snapshot?.loaignore || '');
       $('#settingsDialog').showModal();
     } catch (e) {
@@ -1538,6 +1549,12 @@
     $('#modelPlanning').innerHTML = html;
     $('#modelExecuting').innerHTML = html;
     $('#embeddingModel').innerHTML = html;
+  }
+
+  function populateLocalModels(models) {
+    const html = ['<option value="">— select —</option>', ...models.map(m => `<option value="${esc(m)}">${esc(m.split('/').pop())}</option>`)].join('');
+    if ($('#localEmbeddingModelPath')) $('#localEmbeddingModelPath').innerHTML = html;
+    if ($('#setupLocalEmbeddingModelPath')) $('#setupLocalEmbeddingModelPath').innerHTML = html;
   }
 
   $('#chat').addEventListener('click', (e) => {
@@ -1570,7 +1587,10 @@
       c.ollama_url = url;
       c.api_key = key;
       await api('/api/config?scope=global', {method:'POST', body:JSON.stringify(c)});
-      const m = await api('/api/models');
+      const [m, localM] = await Promise.all([
+        api('/api/models'),
+        api('/api/models/local')
+      ]);
       const models = m.models || [];
       const html = ['<option value="">— select —</option>', ...models.map(m => `<option value="${esc(m)}">${esc(m)}</option>`)].join('');
       $('#setupModelCrawling').innerHTML = html;
@@ -1578,6 +1598,10 @@
       $('#setupModelPlanning').innerHTML = html;
       $('#setupModelExecuting').innerHTML = html;
       $('#setupEmbedding').innerHTML = html;
+      
+      const localModels = localM.models || [];
+      const localHtml = ['<option value="">— select —</option>', ...localModels.map(m => `<option value="${esc(m)}">${esc(m.split('/').pop())}</option>`)].join('');
+      if ($('#setupLocalEmbeddingModelPath')) $('#setupLocalEmbeddingModelPath').innerHTML = localHtml;
       toast(`Found ${models.length} models`);
       $('#setupConnectResult').textContent = `✅ Success! Found ${models.length} models.`;
       $('#setupConnectResult').style.color = '#34d399';
@@ -1591,9 +1615,13 @@
     }
   };
 
-  async function testLLM(url, key, chatModel, embedModel, btnEl, resultEl) {
-    if (!url || (!chatModel && !embedModel)) {
+  async function testLLM(url, key, chatModel, embedModel, btnEl, resultEl, embedEngine, localEmbedPath) {
+    if (!url || (!chatModel && !embedModel && embedEngine !== 'local')) {
       toast('Please configure URL and at least one model before testing', true);
+      return;
+    }
+    if (!chatModel) {
+      toast('Please select an inference model to test', true);
       return;
     }
     const origText = btnEl.textContent;
@@ -1610,7 +1638,9 @@
           ollama_url: url,
           api_key: key,
           chat_model: chatModel,
-          embedding_model: embedModel
+          embedding_model: embedModel,
+          embedding_engine: embedEngine,
+          local_embedding_model_path: localEmbedPath
         })
       });
       const data = await res.json();
@@ -1636,7 +1666,9 @@
         $('#setupModelConversation').value,
         $('#setupEmbedding').value,
         $('#testSetupLlmBtn'),
-        $('#testSetupLlmResult')
+        $('#testSetupLlmResult'),
+        $('#setupEmbeddingEngine').value,
+        $('#setupLocalEmbeddingModelPath').value
       );
     };
   }
@@ -1649,7 +1681,9 @@
         $('#modelConversation').value,
         $('#embeddingModel').value,
         $('#testSettingsLlmBtn'),
-        $('#testSettingsLlmResult')
+        $('#testSettingsLlmResult'),
+        $('#embeddingEngine').value,
+        $('#localEmbeddingModelPath').value
       );
     };
   }
@@ -1659,8 +1693,10 @@
     const mconv = $('#setupModelConversation').value;
     const mp = $('#setupModelPlanning').value;
     const me = $('#setupModelExecuting').value;
+    const ee = $('#setupEmbeddingEngine').value;
     const em = $('#setupEmbedding').value;
-    if (!mc || !mconv || !mp || !me || !em) {
+    const lpath = $('#setupLocalEmbeddingModelPath').value;
+    if (!mc || !mconv || !mp || !me || (ee === 'openapi' && !em)) {
       toast('Please select models first', true);
       return;
     }
@@ -1671,7 +1707,9 @@
     c.model_conversation = mconv;
     c.model_planning = mp;
     c.model_executing = me;
+    c.embedding_engine = ee;
     c.embedding_model = em;
+    c.local_embedding_model_path = lpath;
     c.context_budget = +$('#setupBudget').value;
     c.output_reserve = Math.floor(c.context_budget * 0.25);
     c.code_budget = Math.floor(c.context_budget * 0.50);
@@ -1722,7 +1760,7 @@
     $('#thumb1').style.left = t1 + '%';
     $('#thumb2').style.left = t2 + '%';
     
-    const total = +$('#contextBudget').value || 16000;
+    const total = +$('#contextBudget').value || 100000;
     const outV = Math.floor(total * (outPct/100));
     const codeV = Math.floor(total * (codePct/100));
     const chatV = total - outV - codeV;
@@ -1777,6 +1815,28 @@
   }
   setupSlider();
 
+  function updateEmbeddingEngineUI() {
+    const ee = $('#embeddingEngine') ? $('#embeddingEngine').value : 'local';
+    const see = $('#setupEmbeddingEngine') ? $('#setupEmbeddingEngine').value : 'local';
+    
+    if ($('#lblLocalEmbeddingModelPath')) {
+      $('#lblLocalEmbeddingModelPath').style.display = ee === 'local' ? 'block' : 'none';
+      $('#lblEmbeddingModel').style.display = ee === 'local' ? 'none' : 'block';
+      $('#localEmbeddingModelPath').required = ee === 'local';
+      $('#embeddingModel').required = ee !== 'local';
+    }
+    
+    if ($('#lblSetupLocalEmbeddingModelPath')) {
+      $('#lblSetupLocalEmbeddingModelPath').style.display = see === 'local' ? 'block' : 'none';
+      $('#lblSetupEmbedding').style.display = see === 'local' ? 'none' : 'block';
+      $('#setupLocalEmbeddingModelPath').required = see === 'local';
+      $('#setupEmbedding').required = see !== 'local';
+    }
+  }
+
+  if ($('#embeddingEngine')) $('#embeddingEngine').addEventListener('change', updateEmbeddingEngineUI);
+  if ($('#setupEmbeddingEngine')) $('#setupEmbeddingEngine').addEventListener('change', updateEmbeddingEngineUI);
+
   function fillSettings(c, ignoreText, force = false) {
     if (!c || ($('#settingsDialog').open && !force)) return;
     $('#ollamaUrl').value = c.ollama_url || '';
@@ -1789,9 +1849,14 @@
     const allSame = (c.model_crawling === c.model_conversation && c.model_conversation === c.model_planning && c.model_planning === c.model_executing);
     $('#syncModels').checked = allSame;
     updateSyncUI();
+    
+    setSelect('#embeddingEngine', c.embedding_engine || 'local');
+    $('#localEmbeddingModelPath').value = c.local_embedding_model_path || '';
     setSelect('#embeddingModel', c.embedding_model);
-    $('#contextBudget').value = c.context_budget || 16000;
-    const total = c.context_budget || 16000;
+    if (typeof updateEmbeddingEngineUI === 'function') updateEmbeddingEngineUI();
+
+    $('#contextBudget').value = c.context_budget || 100000;
+    const total = c.context_budget || 100000;
     outPct = Math.round(((c.output_reserve || 4000) / total) * 100) || 25;
     codePct = Math.round(((c.code_budget || 8000) / total) * 100) || 50;
     updateSliderUI();
@@ -1854,7 +1919,7 @@
   function readConfig() {
     const ask = {};
     $$('[data-perm]').forEach(x => ask[x.dataset.perm] = x.checked);
-    const total = +$('#contextBudget').value || 16000;
+    const total = +$('#contextBudget').value || 100000;
     return {
       ollama_url: $('#ollamaUrl').value.trim(),
       api_key: $('#apiKey').value.trim(),
@@ -1862,7 +1927,9 @@
       model_conversation: $('#modelConversation').value,
       model_planning: $('#modelPlanning').value,
       model_executing: $('#modelExecuting').value,
+      embedding_engine: $('#embeddingEngine').value,
       embedding_model: $('#embeddingModel').value,
+      local_embedding_model_path: $('#localEmbeddingModelPath').value,
       context_budget: total,
       output_reserve: Math.floor(total * (outPct/100)),
       code_budget: Math.floor(total * (codePct/100)),
@@ -1915,7 +1982,7 @@
       const wasIncomplete = !$('#settingsDialog').open || $('#closeSettings').style.display === 'none';
       toast(`Settings saved (${scope})`);
       
-      if (wasIncomplete && cfg.model_crawling && cfg.embedding_model) {
+      if (wasIncomplete && cfg.model_crawling && (cfg.embedding_engine === 'local' || cfg.embedding_model)) {
         initialSetupComplete = true;
         api('/api/reindex', {method:'POST'});
         toast("Initializing memory index...");

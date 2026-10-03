@@ -39,7 +39,9 @@ func NewExtractDurableMemoryPrimitive(cfg config.Config, llmClient llm.Client, b
 	}
 }
 
-var ExtractDurableMemoryPrompt = `From the recent interaction, extract only durable facts, decisions, corrections, or user approvals that are likely useful later in this session. Interpret short replies in context (for example "okay" may mean approval of a prior proposal). Do not store pleasantries or transient chatter.
+var ExtractDurableMemoryPrompt = `Analyze the most recent message from the user in the provided interaction. Extract new durable facts, decisions, corrections, or user approvals ONLY if they were introduced in this specific newest message. 
+Use the older messages strictly as context to understand the new message (for example, to know what "okay" or "do that" refers to). Do not extract facts that were already established in the previous messages.
+Do not store pleasantries or transient chatter.
 Do NOT extract the user's immediate task instructions or commands (e.g. "analyze this file", "fix this bug"). Only extract persistent user constraints, preferences, or environment details.
 Allowed kind values are exactly: fact, decision, approval, step_result.
 Return {"items":[{"kind":"fact","text":"self-contained statement"}]}. An empty items list is valid.`
