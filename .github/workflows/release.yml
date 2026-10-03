@@ -51,7 +51,7 @@ jobs:
               cd "$TMP_LLAMA_DIR"
               git checkout "$LLAMA_GO_COMMIT"
               git submodule update --init --recursive
-              if [ "$GOARCH" = "arm64" ]; then
+              if [ "${{ matrix.goarch }}" = "arm64" ]; then
                 sed -i 's/-march=native -mtune=native//g' Makefile
                 sed -i 's/-mcpu=native//g' Makefile
                 sed -i 's/cmake \.\.\/llama\.cpp/cmake ..\/llama.cpp -DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=aarch64 -DGGML_NATIVE=OFF/g' Makefile
@@ -60,6 +60,7 @@ jobs:
             )
             export C_INCLUDE_PATH="$TMP_LLAMA_DIR"
             export LIBRARY_PATH="$TMP_LLAMA_DIR"
+            go mod edit -replace github.com/tcpipuk/llama-go="$TMP_LLAMA_DIR"
           fi
           go build -tags localembed -o loa ./cmd/loa
 
