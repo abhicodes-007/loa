@@ -793,7 +793,7 @@ func (s *Server) handleTestLLM(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 	_, err := testClient.ChatText(ctx, req.ChatModel, "You are a test bot. Respond with 'ok'.", "Respond with 'ok'")
 	if err != nil {
@@ -823,7 +823,7 @@ func (s *Server) handleTestLLM(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else if req.EmbeddingModel != "" {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 		defer cancel()
 		vec, err := testClient.Embed(ctx, "test embedding")
 		if err != nil {
