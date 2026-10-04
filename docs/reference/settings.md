@@ -1,72 +1,130 @@
 # Settings Reference
 
-Loa configuration is entirely managed locally and saved to your project's `.loa/config.json` file, with global fallbacks available in your user configuration directory. You can adjust these settings at any time using the Settings Modal in the Web UI.
+Loa configuration is loaded in this order:
 
-## Model Configuration
+1. built-in defaults,
+2. global config from the OS user-config directory: `loa/config.json`,
+3. project overrides from `<project>/.loa.json`.
 
-- **LLM Base URL** (`ollama_url`): The endpoint for your local OpenAI-compatible inference server (e.g., `http://127.0.0.1:11434/v1` for Ollama).
-- **LLM Token** (`api_key`): API key if required by your inference server (can be left blank for local Ollama instances).
-- **Model Crawling** (`model_crawling`): The specific model string to use for initial project crawling.
-- **Analysis/Background Model** (`model_conversation`): Used for lightweight, analytical background primitives (e.g., assessing blind execution limits, determining intents, synthesizing tasks). 
-- **Model Planning** (`model_planning`): The model used for DAG plan generation.
-- **Model Executing** (`model_executing`): The primary model used to execute tool calls in the loop.
-- **Embedding Model** (`embedding_model`): The model used for vector generation.
+On a typical Linux installation, the global path resolves to `~/.config/loa/config.json`.
 
-## Timeout Configuration
+The table below reflects the current `internal/config/config.go` fields/defaults.
 
-- **Model Timeout Seconds** (`model_timeout_seconds`): Maximum wait time for an LLM response before the engine aborts the request.
-- **Command Timeout Seconds** (`command_timeout_seconds`): Maximum wait time for a shell command or process to execute in the sandbox before it is forcefully killed.
-- **LLM Polling Timeout Seconds** (`llm_polling_timeout_seconds`): Timeout for LLM polling checks.
-- **Server Read Header Timeout** (`server_read_header_timeout_seconds`): HTTP server read header timeout.
+## Model and Endpoint
 
-## Pipeline & Flow Control
+| JSON field | Default | Current use |
+| --- | --- | --- |
+| `ollama_url` | `http://127.0.0.1:11434` | Base URL for the OpenAI-compatible model client. |
+| `api_key` | empty | Optional Bearer token. |
+| `model_crawling` | empty | Model role used by crawler primitives. |
+| `model_conversation` | empty | Conversation/control model role. |
+| `model_planning` | empty | Planning model role. |
+| `model_executing` | empty | Execution/tool-decision model role. |
+| `embedding_engine` | `local` | `local` GGUF embedding backend or external OpenAI-compatible embeddings. |
+| `embedding_model` | empty | External embedding model identifier. |
+| `local_embedding_model_path` | `~/.loa/embedding-models/nomic-embed-text-v1.5.f16.gguf` (expanded absolute default internally) | Local GGUF embedding model. |
 
-- **Evaluation Mode** (`evaluation_mode`): Determines how strictly Loa evaluates its progress. Set to `strict` (evaluates every single step against the objective) or `dynamic` (allows the agent to execute tightly coupled changes blindly for speed, monitored by a background LLM supervisor).
-- **Blind Action Threshold** (`blind_action_threshold`): When in dynamic mode, this defines the maximum number of consecutive blind executions the engine can perform before the background supervisor forces a deep evaluation.
-- **Max Execution Loops** (`max_execution_loops`): The maximum number of tool executions/iterations allowed for a single task session before the engine trips the circuit breaker and enters the `PAUSED` state.
-- **Max Plan Depth** (`max_plan_depth`): Maximum allowed depth for nested DAG steps during planning/decomposition.
-- **JSON Repair Attempts** (`json_repair_attempts`): How many times the engine will automatically prompt the LLM to fix a malformed JSON payload before giving up.
-- **Persistent Project Instructions** (`project_instructions`): Custom rules, coding conventions, or architectural guidelines that are permanently injected into the system prompt for every step executed in this project.
+The current model client uses `/v1/models`, `/v1/chat/completions`, and `/v1/embeddings` (when external embeddings are used).
 
-## Context & Memory Management
+## Context
 
-Loa manages the LLM context window explicitly through mathematical token budgets.
+| JSON field | Default | Current use |
+| --- | ---: | --- |
+| `context_budget` | `100000` | Per-inference context budget used by the context builder. For non-OpenAI-host URLs it is also sent as `options.num_ctx`. |
+| `output_reserve` | `4000` | Reserved output allowance; sent as chat `max_tokens`. |
+| `code_budget` | `8000` | Rune/token allowance limiting extra retrieved/tool context injected by the builder. |
+| `recent_messages` | `12` | Maximum recent conversation messages considered for prompt composition. |
+| `context_recent_breadcrumbs` | `5` | Number of recent completed-step summaries injected as breadcrumbs. |
+| `context_minimum_buffer` | `2000` | Minimum prompt safety buffer; builder otherwise starts from 5% of `context_budget`. |
+| `context_minimum_safe_budget` | `4000` | Floor applied to the builder's computed safe budget. |
+| `context_code_budget_max_floor` | `8000` | Current lower floor on the builder's computed `maxRunes` prompt allowance after output reserve is subtracted. |
+| `project_instructions` | empty | Added to mandatory task context when non-empty. |
 
-- **Context Budget** (`context_budget`): The absolute maximum token limit of your chosen LLM. Loa will aggressively slice memory and tool outputs to never exceed this limit.
-- **Output Reserve** (`output_reserve`): The amount of tokens strictly reserved for the LLM's response generation.
-- **Code Budget** (`code_budget`): The amount of tokens reserved for code generation.
-- **Recent Messages** (`recent_messages`): Number of recent chat messages to retain in context.
-- **Memory Top K** (`memory_top_k`): Number of semantic memory chunks to retrieve during a search.
-- **Memory Candidate Pool** (`memory_candidate_pool`): Number of candidate chunks to fetch before reranking.
-- **Memory Rerank Gates** (`memory_rerank_gates`): Number of gates/passes during memory reranking.
-- **Memory Pool Expansion Limit** (`memory_pool_expansion_limit`): Allowed expansions for memory pooling.
-- **Context Minimum Buffer** (`context_minimum_buffer`): A safety buffer (e.g., `2000`) subtracted from the max length to account for tokenization discrepancies between Loa's counting and the LLM's internal tokenizer.
-- **Context Safe Budget Floor** (`context_minimum_safe_budget`): The minimum allowed token space reserved for historical context. If context sliding drops below this floor, it indicates the task has generated too much unstructured output to continue safely.
-- **Code Budget Max Floor** (`context_code_budget_max_floor`): The absolute minimum token budget reserved exclusively for the LLM to write code or generate JSON structures during execution.
+`context_budget` is not a task-level cost/request limit. A task can perform many independent inferences, each of which stays within this budget.
 
-## Memory Decay (LTS vs Session)
+## Memory Retrieval
 
-- **Memory LTS Decay Half Life (Hours)** (`memory_lts_decay_half_life_hours`): Time before Long-Term Storage (Project Memory) decays by half (default `336.0` hours).
-- **Memory LTS Max Weight** (`memory_lts_max_weight`): The starting weight of Project Memory (default `0.03`).
-- **Memory Session Decay Half Life (Hours)** (`memory_session_decay_half_life_hours`): Time before active session memory decays by half (default `2.0` hours).
-- **Memory Session Max Weight** (`memory_session_max_weight`): The starting weight of Session Memory (default `0.20`).
+| JSON field | Default | Current use |
+| --- | ---: | --- |
+| `memory_top_k` | `8` | Final requested memory-search result count. |
+| `memory_candidate_pool` | `30` | Initial retrieval candidate pool. |
+| `memory_lts_decay_half_life_hours` | `336.0` | Project-memory age-decay half-life used in retrieval scoring. |
+| `memory_lts_max_weight` | `0.03` | Project-memory maximum age/relevance weight contribution. |
+| `memory_session_decay_half_life_hours` | `2.0` | Session-memory age-decay half-life used in retrieval scoring. |
+| `memory_session_max_weight` | `0.20` | Session-memory maximum age/relevance weight contribution. |
+| `memory_rerank_gates` | `3` | Configured reranking/filter gate count. |
+| `memory_pool_expansion_limit` | `4` | Configured limit for candidate-pool expansion. |
 
-## File System & Tool Limits
+These decay settings affect search scoring. They do not define a memory-deletion or recursive compression schedule.
 
-- **FS Watcher Debounce (ms)** (`fs_watcher_debounce_ms`): Debounce threshold for the file watcher.
-- **Crawler Small File Threshold** (`crawler_small_file_threshold`): Max lines for a file to be processed wholly without chunking during codebase indexing.
-- **Crawler Max Chunk Lines** (`crawler_max_chunk_lines`): Max lines per chunk when parsing large files.
-- **Max Stored Tool Output (Bytes)** (`max_stored_tool_output_bytes`): Hard limit (default 4MB) for capturing output from shell commands. Outputs exceeding this are truncated in the DB.
-- **Max Prompt Tool Output Bytes** (`max_prompt_tool_output_bytes`): Limit (default 30,000 bytes) for injecting tool outputs into the LLM context. Outputs exceeding this are automatically spilled over into a readable artifact file, protecting the prompt budget while still allowing the agent to read the full output safely.
+## Planning, Evaluation, and Limits
+
+| JSON field | Default | Current use |
+| --- | ---: | --- |
+| `json_repair_attempts` | `7` | Maximum model repair attempts for malformed/invalid structured output. |
+| `max_plan_depth` | `25` | Bound reused across plan/replan attempts, decomposition depth, and final iterative verification. |
+| `max_execution_loops` | `80` | Bound used by internal execution loops, including per-step execution/recovery and negotiation loops. |
+| `blind_action_threshold` | `8` | Dynamic-mode threshold that triggers `AssessBlindExecution`. |
+| `evaluation_mode` | `Dynamic` | `Dynamic` or `Immediate` (the UI labels `Immediate` as Strict). |
+
+`max_execution_loops` should not be interpreted as one global counter across the complete lifetime of a task.
+
+## Crawler and Filesystem Watcher
+
+| JSON field | Default | Current use |
+| --- | ---: | --- |
+| `crawler_small_file_threshold` | `200` | Line threshold used by crawler chunking. |
+| `crawler_max_chunk_lines` | `150` | Crawler chunk-size target/limit used when grouping indexed blocks. |
+| `fs_watcher_debounce_ms` | `500` | Filesystem event debounce before changed files are marked stale. |
+
+## Tool Output
+
+| JSON field | Default | Current use |
+| --- | ---: | --- |
+| `max_stored_tool_output_bytes` | `4194304` | Tool Manager truncates ordinary tool result output to this many bytes and marks the result `Truncated`. `analyze_large_file` is exempt. |
+| `max_prompt_tool_output_bytes` | `30000` | Field/UI control exists, but this audit found no active consumer in the current engine or Tool Manager path. |
+
+Because the Tool Manager stores the already-truncated output in its internal output map, `read_tool_output` cannot recover bytes discarded by `max_stored_tool_output_bytes`.
+
+## Timeouts
+
+| JSON field | Default | Current use |
+| --- | ---: | --- |
+| `model_timeout_seconds` | `600` | Model-request timeout. |
+| `command_timeout_seconds` | `120` | Default process/shell timeout when a tool call does not provide a positive override. |
+| `llm_polling_timeout_seconds` | `15` | LLM polling timeout configuration. |
+| `server_read_header_timeout_seconds` | `10` | HTTP server read-header timeout. |
 
 ## Permissions
 
-Controls the sandbox boundaries for agent actions.
+Configuration shape:
 
-- **Permission Mode**:
-  - `ask_all`: The agent asks for user approval before executing ANY tool.
-  - `ask_selected`: The agent asks for user approval only for the tools explicitly checked in the grid.
-  - `allow_all`: The agent runs fully autonomously. (Recommended only inside `loa-sandbox`).
-- **Tool Grid**: Checkboxes to toggle permissions for individual tools (e.g., `execute_shell`, `write_file`, `delete_directory`).
+```json
+{
+  "permissions": {
+    "mode": "ask_selected",
+    "ask_for": {
+      "write_file": true,
+      "patch_file": true,
+      "delete_file": true,
+      "delete_directory": true,
+      "execute_process": true,
+      "execute_shell": true
+    }
+  }
+}
+```
 
-> **Warning:** Loa intentionally does not strictly "safety parse" shell commands. If `execute_shell` is permitted, the agent has the capability to run commands that could modify your system if you are running in Host Execution mode.
+Permission modes:
+
+- `ask_all`
+- `ask_selected`
+- `allow_all`
+
+The default mode is `ask_selected`. The default approval set includes write/patch/delete/process/shell operations. `patch_ast_node` and `create_directory` are classified as mutating by the Tool Manager but are not included in the default `ask_for` map shown by `config.Default()`.
+
+The approval model is independent from task read-only enforcement. The engine/tool schema can also withhold mutating tools for read-only contexts.
+
+## Normalization Notes
+
+Most positive numeric fields are restored to their documented defaults when loaded with a non-positive value, but normalization is not uniform for every field. The definitive behavior is `Config.normalize()` in `internal/config/config.go`; do not assume every zero value is automatically replaced.

@@ -1,52 +1,54 @@
 # Design Philosophy
 
-The strongest case for Loa is not simply "it uses an LLM to edit code." It is the **control system** built *around* the model. 
+The strongest case for Loa is not simply that it uses an LLM to edit code. The defining part is the control system built around the model.
 
-Loa is designed for architect-driven engineering rather than autonomous product taste. You define the architectural intent and invariants; Loa performs the expensive implementation, research, and verification work underneath that direction.
+Loa is intended for architect-driven engineering rather than autonomous product taste. You provide the goal, architectural intent, constraints, and acceptance expectations; Loa provides a stateful mechanism for investigation, implementation, verification, recovery, and long-running execution underneath that direction.
 
-Below is a breakdown of the core philosophies that differentiate Loa from standard API wrappers.
+The principles below describe the current implementation rather than a generic agent architecture.
 
----
+## 1. Mutable State and Planning
 
-## 1. State & Planning (The Mutable DAG)
+- **A mutable DAG instead of a fixed plan.** Planned Mode starts with an explicit plan, but the plan can be decomposed or replanned as execution discovers new information.
+- **Dependencies are also context topology.** A DAG edge affects execution eligibility and which completed `StepResult` values are injected as direct prerequisites for a dependent step.
+- **Bounded operations instead of one giant inference.** Loa deliberately separates intent, criteria, planning, execution decisions, hypotheses, evaluation, recovery, context maintenance, and verification into smaller operations.
+- **Sequential task execution where state matters.** Plan steps are not executed as independent parallel agents. The current task is progressed through a serialized state machine so mutations and later reasoning observe the current persisted state.
+- **Plan approval before Planned mutations.** A modifying Planned task waits for explicit plan approval before execution. Fast Mode deliberately skips the initial multi-step planning/approval path.
 
-- **Dynamic mutable DAG instead of a fixed plan.** Loa starts with a plan, but the plan is expected to change as the agent learns the codebase. Steps can be added, removed, rewired, retried, or decomposed rather than treating the initial plan as truth.
-- **Dependencies are also context topology.** A DAG edge does not merely mean “step B waits for step A.” It determines which prior results become context for later reasoning. Changing the DAG therefore changes both execution order and information flow.
-- **Bounded cognitive operations.** A step is not supposed to solve an entire engineering problem in one huge inference. Loa breaks work into narrower reasoning/actions and allows many sequential iterations around one objective.
-- **Sequential reasoning where state matters.** Loa deliberately does not optimize for maximum parallelism. When interpretation depends on what was learned in the previous thought, it keeps inference sequential. 
-- **Plan approval before mutation.** Architectural discussion does not automatically turn into code changes. The flow is: understand intent → form plan → user approves → execute.
+## 2. Execution, Evaluation, and Recovery
 
-## 2. Execution, Verification & Recovery
+- **Model decisions and tool execution are separate.** `ExecuteStep` decides what should happen next; the Tool Manager performs the requested operation and returns a tool result.
+- **Hypothesis before many mutations.** Mutating tools other than `execute_process` can be preceded by `FormulateHypothesis` in the current engine.
+- **"Ran" is not the same as "verified."** A successful tool exit is not automatically treated as proof that a step's objective is complete. Evaluation can return partial or verification-required outcomes.
+- **Failure is structured state.** The recovery path can distinguish retry, investigate/repair, clarification, rollback/recovery, and replanning rather than applying a single retry rule.
+- **Malformed structured output is repaired through bounded model retries.** The LLM client parses JSON strictly and can ask the model to repair malformed output up to the configured retry limit. The current implementation should not be described as having a separate deterministic JSON-repair pipeline.
 
-- **Explicit hypothesis → action → evaluation loops.** Before risky or meaningful mutations, Loa can formulate a hypothesis and expected result, perform the action, and independently evaluate whether the result actually supports completion.
-- **It distinguishes “worked” from “verified.”** Build success, test success, and semantic correctness are not treated as the same thing. Loa can return `partial` or `verification_required` even after code compiles.
-- **It can say “I’m not sure yet.”** The control layer explicitly permits `partial`, `needs_more_information`, and similar outcomes rather than strongly incentivizing a premature “done.”
-- **Failure generates new knowledge rather than merely consuming retries.** A failed test can trigger a hypothesis, investigation, architectural discovery, and a plan mutation.
-- **Retry versus investigate versus repair versus replan.** Failure is not a single generic loop. Loa decides whether the problem needs another attempt, more information, a local repair, or a structural change to the remaining DAG.
-- **Structured-output repair is built into the control loop.** Malformed JSON first gets deterministic repair where possible, then bounded model-based repair. A malformed orchestration response does not kill a long run.
+## 3. Context and Memory
 
-## 3. Context & Memory Systems
+- **Context is reconstructed for each inference.** Loa composes the active task/step state, direct DAG prerequisites, recent breadcrumbs/messages, and selected extra context against the current token budget.
+- **The context window is not the memory store.** Persisted project memory, session memory, task state, tool results, artifacts, and source files remain separate from the prompt assembled for one inference.
+- **Original evidence is not recursively rewritten to fit the context window.** When material does not fit, the context builder selects/truncates what is injected. It does not repeatedly summarize the whole previous prompt into a new canonical version.
+- **Derived memories have explicit roles.** Narrative Frames, `StepResult` extraction, task summaries, refreshed task context, and consolidated semantic memories are derived representations used for retrieval/control. They do not erase the underlying source/task/tool records.
+- **Project structural memories are source-anchored.** The filesystem watcher can invalidate memories for changed files so they can be rebuilt from current source.
 
-- **Context is reconstructed, not accumulated.** Loa does not drag the entire conversation history forever. It surgically composes the context needed for the current inference from relevant original material.
-- **Temporary context expansion and contraction.** Difficult steps can grow large context windows, but when the step finishes, the context drops back down rather than continuing upward forever.
-- **Original evidence is preferred over lossy context summarization.** Instead of repeatedly “minifying” the whole context through an LLM and risking information loss or hallucinated summaries, Loa keeps source material intact and selects relevant pieces. 
-- **Layered memory rather than one global RAG bucket.** Working memory, session memory, and project memory have different purposes and lifetimes.
-- **Semantic promotion at task boundaries.** Working memory is not simply dumped wholesale into longer-term memory. Loa consolidates useful semantic state and discards episodic execution noise.
-- **Codebase freshness is preferred over memory convenience.** Loa is relatively reluctant to rely on memory when it can inspect the actual source. For mutable software, this is usually the safer bias.
-- **Artifacts as external reasoning storage.** Intermediate analyses, inventories, and reports can be stored as artifacts rather than bloating the active model context.
+## 4. Autonomy and Observability
 
-## 4. Autonomy & Observability
+- **Long-running autonomy is a first-class target.** Planned tasks are designed to survive many tool calls, evaluations, failures, and replans rather than assuming a short interactive exchange.
+- **High inference count is intentional.** Local/self-hosted inference makes it practical to spend model calls on independent checking, retrieval, evaluation, and recovery. Loa is not designed around minimizing billable API requests.
+- **Pause and resume preserve task state.** A paused/error-stopped task keeps its persisted DAG/session/tool state. After process restart, a previously running task is loaded as paused and can be inspected/resumed.
+- **User steering is part of execution.** Messages received during a running task are handled as interventions. Planned Mode can replan its remaining DAG around new guidance.
+- **The control state is inspectable.** The UI exposes plan/graph state, memory views, the last composed model context, artifacts, execution logs, approvals, uploads, and task controls.
 
-- **Long-running autonomy is a first-class design target.** It is meant to run for hours, potentially unattended, rather than being optimized around five-minute interactive coding exchanges.
-- **Pause/resume and manual-intervention state.** An unrecoverable operational problem does not have to destroy a 10-hour run. Loa can pause with the DAG, memories, tool state, and artifacts preserved, let you fix the environment, and then resume.
-- **User steering during execution.** You can inject information or constraints while a long task is running. Loa interprets the message in the context of the current task and can mutate the DAG accordingly.
-- **Tool use is deliberately observable.** The UI exposes DAG state, inference inputs/outputs, context size, memories, tool calls, results, and execution state. You can inspect why the system behaved the way it did instead of receiving only a final diff.
-- **Past DAG work remains queryable.** It can explicitly search and reopen previous task-step results instead of requiring all prior reasoning to remain in-context.
-- **Long-run state is inspectable enough for external review.** The debug logs provide a forensic record of what the system believed, attempted, verified, repaired, and concluded.
+## 5. Security and Trust Boundaries
 
-## 5. Security & Economics
+- **The permission model and the sandbox are separate controls.** `ask_all`, `ask_selected`, and `allow_all` decide when tool calls require approval. Docker decides which host resources are exposed to a sandboxed Loa process.
+- **File tools are project-root constrained.** Registered file read/write/delete operations validate relative paths and reject traversal outside the project root.
+- **Shell/process tools are deliberately more powerful.** `execute_process` and `execute_shell` execute in the operating environment where Loa is running and are not confined by the file-tool project-root checks.
+- **The Docker sandbox still mounts the target project read/write.** It protects the rest of the host through container isolation/mount choices; it does not make the project itself immutable.
 
-- **Local-first economics.** Hundreds of inferences are viable because the model runs locally. Loa can spend inference budget on checking, reconsidering, and verifying rather than minimizing API calls for cost reasons.
-- **Explicit trust boundaries and permissions.** Read-only, selected approval, ask-every-time, and allow-all modes let the same agent operate safely on a host or autonomously inside a sandbox.
-- **Optional Docker execution sandbox.** The sandbox makes unattended execution practical while keeping the target project mounted dynamically and the dangerous execution boundary obvious.
-- **Model-agnostic control layer.** A stronger model should improve hypothesis quality and coding, but the durable DAG/memory/tool structure remains outside the model. The architecture does not depend on one frontier provider.
+See [Sandbox and Security](sandbox_and_security.md) for the concrete boundaries.
+
+## 6. Model-Agnostic Control Layer
+
+Loa talks to an OpenAI-compatible model endpoint and keeps the DAG, persisted task state, memory stores, context builder, permissions, tools, and recovery logic outside the model.
+
+A stronger model can improve the quality of decisions and code generation, but the surrounding control structure is implemented by Loa rather than being delegated to a provider-specific agent runtime.

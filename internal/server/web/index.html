@@ -203,13 +203,15 @@
   <dialog id="approvalDialog" class="modal">
     <form method="dialog" class="modal-card">
       <div class="modal-head"><h2>APPROVAL REQUIRED</h2><span class="pulse">●</span></div>
-      <div class="kv"><span>TOOL</span><code id="approvalTool"></code></div>
-      <div class="kv"><span>REASON</span><div id="approvalReason"></div></div>
-      <div class="kv"><span>TARGET</span><pre id="approvalTarget" class="inline-command"></pre></div>
-      <details><summary>Exact request</summary><pre id="approvalInput" class="codeblock"></pre></details>
-      <div class="approval-guidance">
-        <textarea id="approvalGuidanceInput" rows="2" placeholder="Send guidance instead of approving this action…"></textarea>
-        <button id="approvalGuidanceBtn" type="button">STEER TASK</button>
+      <div class="modal-body" style="overflow-y: auto; flex: 1; padding-right: 4px;">
+        <div class="kv"><span>TOOL</span><code id="approvalTool"></code></div>
+        <div class="kv"><span>REASON</span><div id="approvalReason"></div></div>
+        <div class="kv"><span>TARGET</span><pre id="approvalTarget" class="inline-command"></pre></div>
+        <details><summary>Exact request</summary><pre id="approvalInput" class="codeblock"></pre></details>
+        <div class="approval-guidance">
+          <textarea id="approvalGuidanceInput" rows="2" placeholder="Send guidance instead of approving this action…"></textarea>
+          <button id="approvalGuidanceBtn" type="button">STEER TASK</button>
+        </div>
       </div>
       <div class="modal-actions">
         <button id="denyBtn" value="cancel" class="danger" type="button">DENY</button>
@@ -223,8 +225,10 @@
   <dialog id="sessionDialog" class="modal">
     <form id="sessionForm" class="modal-card">
       <div class="modal-head"><h2>CREATE SESSION</h2><button id="closeSession" type="button">×</button></div>
-      <p class="muted">Give this work session a short, recognizable title.</p>
-      <label class="session-title-label">SESSION TITLE<input id="sessionTitleInput" type="text" maxlength="120" autocomplete="off" placeholder="UI cleanup" required></label>
+      <div class="modal-body" style="overflow-y: auto; flex: 1; padding-right: 4px;">
+        <p class="muted">Give this work session a short, recognizable title.</p>
+        <label class="session-title-label">SESSION TITLE<input id="sessionTitleInput" type="text" maxlength="120" autocomplete="off" placeholder="UI cleanup" required></label>
+      </div>
       <div class="modal-actions">
         <button id="createSessionBtn" class="primary" type="submit">CREATE</button>
       </div>
@@ -234,14 +238,16 @@
   <dialog id="logDetailModal" class="modal wide">
     <form method="dialog" class="modal-card">
       <div class="modal-head"><h2 id="logDetailTitle">EXECUTION LOG</h2><button id="closeLogDetail" type="button">×</button></div>
-      <div class="kv"><span>TIMESTAMP</span><span id="logDetailTime"></span></div>
-      <div id="logDetailInputContainer" style="display:none; margin-top: 14px;">
-        <div class="muted" style="margin-bottom: 5px;">INPUT</div>
-        <div id="logDetailInput"></div>
-      </div>
-      <div id="logDetailOutputContainer" style="display:none; margin-top: 14px;">
-        <div class="muted" style="margin-bottom: 5px;">OUTPUT</div>
-        <div id="logDetailOutput"></div>
+      <div class="modal-body" style="overflow-y: auto; flex: 1; padding-right: 4px;">
+        <div class="kv"><span>TIMESTAMP</span><span id="logDetailTime"></span></div>
+        <div id="logDetailInputContainer" style="display:none; margin-top: 14px;">
+          <div class="muted" style="margin-bottom: 5px;">INPUT</div>
+          <div id="logDetailInput"></div>
+        </div>
+        <div id="logDetailOutputContainer" style="display:none; margin-top: 14px;">
+          <div class="muted" style="margin-bottom: 5px;">OUTPUT</div>
+          <div id="logDetailOutput"></div>
+        </div>
       </div>
     </form>
   </dialog>
@@ -380,36 +386,38 @@
   <dialog id="globalSetupDialog" class="modal">
     <form method="dialog" class="modal-card settings-card">
       <div class="modal-head"><h2>INITIAL SETUP</h2></div>
-      <p style="font-size:11px;color:var(--muted);margin-bottom:14px;line-height:1.4">Welcome to LOA! Please configure your AI provider to continue.</p>
-      <div class="settings-grid" style="grid-template-columns:1fr 1fr;gap:10px">
-        <label class="full" style="grid-column:1/-1">API Base URL<input id="setupUrl" type="text" placeholder="http://127.0.0.1:11434" required></label>
-        <label class="full" style="grid-column:1/-1">API Key (Optional)<input id="setupKey" type="password"></label>
-        
-        <div style="grid-column:1/-1;margin-bottom:10px">
-          <button id="setupConnectBtn" type="button" style="width:100%">CONNECT</button>
-          <div id="setupConnectResult" style="margin-top:8px; font-size:12px; text-align:center;"></div>
-        </div>
+      <div class="modal-body" style="overflow-y: auto; flex: 1; padding-right: 4px;">
+        <p style="font-size:11px;color:var(--muted);margin-bottom:14px;line-height:1.4">Welcome to LOA! Please configure your AI provider to continue.</p>
+        <div class="settings-grid" style="grid-template-columns:1fr 1fr;gap:10px">
+          <label class="full" style="grid-column:1/-1">API Base URL<input id="setupUrl" type="text" placeholder="http://127.0.0.1:11434" required></label>
+          <label class="full" style="grid-column:1/-1">API Key (Optional)<input id="setupKey" type="password"></label>
+          
+          <div style="grid-column:1/-1;margin-bottom:10px">
+            <button id="setupConnectBtn" type="button" style="width:100%">CONNECT</button>
+            <div id="setupConnectResult" style="margin-top:8px; font-size:12px; text-align:center;"></div>
+          </div>
 
-        <label class="full" style="grid-column:1/-1; display:flex; align-items:center; gap:8px;">
-          <input type="checkbox" id="setupSyncModels" checked style="width:auto; margin-top:0; cursor:pointer;"> Use one model for all inferences
-        </label>
-        <label><span id="textSetupModelCrawling">Crawling Model</span><select id="setupModelCrawling" required></select></label>
-        <label>Conversation Model<select id="setupModelConversation" required></select></label>
-        <label>Planning Model<select id="setupModelPlanning" required></select></label>
-        <label>Executing Model<select id="setupModelExecuting" required></select></label>
-        <label>Embedding Engine
-          <select id="setupEmbeddingEngine">
-            <option value="local">Local CPU (Recommended)</option>
-            <option value="openapi">External API (OpenAPI)</option>
-          </select>
-        </label>
-        <label id="lblSetupLocalEmbeddingModelPath" title="Absolute path to the GGUF model for local CPU embeddings">Local Model Path<select id="setupLocalEmbeddingModelPath"></select></label>
-        <label id="lblSetupEmbedding" title="Requires a dedicated embedding model like nomic-embed-text">External Embedding Model<select id="setupEmbedding"></select></label>
-        <div class="full" style="grid-column:1/-1;margin-bottom:10px">
-          <button id="testSetupLlmBtn" type="button" class="secondary" style="width:100%;">TEST CONFIGURATION</button>
-          <div id="testSetupLlmResult" style="margin-top:8px; font-size:12px; text-align:center;"></div>
+          <label class="full" style="grid-column:1/-1; display:flex; align-items:center; gap:8px;">
+            <input type="checkbox" id="setupSyncModels" checked style="width:auto; margin-top:0; cursor:pointer;"> Use one model for all inferences
+          </label>
+          <label><span id="textSetupModelCrawling">Crawling Model</span><select id="setupModelCrawling" required></select></label>
+          <label>Conversation Model<select id="setupModelConversation" required></select></label>
+          <label>Planning Model<select id="setupModelPlanning" required></select></label>
+          <label>Executing Model<select id="setupModelExecuting" required></select></label>
+          <label>Embedding Engine
+            <select id="setupEmbeddingEngine">
+              <option value="local">Local CPU (Recommended)</option>
+              <option value="openapi">External API (OpenAPI)</option>
+            </select>
+          </label>
+          <label id="lblSetupLocalEmbeddingModelPath" title="Absolute path to the GGUF model for local CPU embeddings">Local Model Path<select id="setupLocalEmbeddingModelPath"></select></label>
+          <label id="lblSetupEmbedding" title="Requires a dedicated embedding model like nomic-embed-text">External Embedding Model<select id="setupEmbedding"></select></label>
+          <div class="full" style="grid-column:1/-1;margin-bottom:10px">
+            <button id="testSetupLlmBtn" type="button" class="secondary" style="width:100%;">TEST CONFIGURATION</button>
+            <div id="testSetupLlmResult" style="margin-top:8px; font-size:12px; text-align:center;"></div>
+          </div>
+          <label class="full" style="grid-column:1/-1">Total Context Budget (Tokens)<input id="setupBudget" type="number" min="4096" value="100000"></label>
         </div>
-        <label class="full" style="grid-column:1/-1">Total Context Budget (Tokens)<input id="setupBudget" type="number" min="4096" value="100000"></label>
       </div>
       <div class="modal-actions" style="margin-top:20px">
         <button id="setupSaveBtn" type="button" class="primary" style="width:100%">SAVE GLOBAL DEFAULTS & START</button>
@@ -420,11 +428,13 @@
   <dialog id="projectSetupDialog" class="modal">
     <form method="dialog" class="modal-card settings-card">
       <div class="modal-head"><h2>NEW PROJECT DETECTED</h2></div>
-      <p style="font-size:11px;color:var(--muted);margin-bottom:14px;line-height:1.4">Before LOA scans your workspace, configure your crawl ignores and project purpose.</p>
-      
-      <label class="full">Initial Session Title<input id="projSetupSessionTitle" type="text" placeholder="Initial Setup & Exploration" required></label>
-      <label class="full">Project Purpose (Global Concept Memory)<textarea id="projSetupPurpose" rows="3" placeholder="What is this project? e.g. A Go web server for managing IoT devices..."></textarea></label>
-      <label class="full">.loaignore (Files/Dirs to skip)<textarea id="projSetupIgnore" rows="5" placeholder="node_modules/&#10;.git/&#10;.loa/&#10;loa&#10;dist/&#10;build/"></textarea></label>
+      <div class="modal-body" style="overflow-y: auto; flex: 1; padding-right: 4px;">
+        <p style="font-size:11px;color:var(--muted);margin-bottom:14px;line-height:1.4">Before LOA scans your workspace, configure your crawl ignores and project purpose.</p>
+        
+        <label class="full">Initial Session Title<input id="projSetupSessionTitle" type="text" placeholder="Initial Setup & Exploration" required></label>
+        <label class="full">Project Purpose (Global Concept Memory)<textarea id="projSetupPurpose" rows="3" placeholder="What is this project? e.g. A Go web server for managing IoT devices..."></textarea></label>
+        <label class="full">.loaignore (Files/Dirs to skip)<textarea id="projSetupIgnore" rows="5" placeholder="node_modules/&#10;.git/&#10;.loa/&#10;loa&#10;dist/&#10;build/"></textarea></label>
+      </div>
       
       <div class="modal-actions" style="margin-top:20px">
         <button id="projSetupSaveBtn" type="button" class="primary" style="width:100%">START BOOT SCAN</button>
@@ -435,9 +445,11 @@
   <dialog id="memoryEditDialog" class="modal">
     <form method="dialog" class="modal-card">
       <div class="modal-head"><h2>EDIT MEMORY</h2><button id="closeMemoryEdit" type="button">×</button></div>
-      <label class="full">Memory Text
-        <textarea id="memoryEditTextInput" rows="5" required></textarea>
-      </label>
+      <div class="modal-body" style="overflow-y: auto; flex: 1; padding-right: 4px;">
+        <label class="full">Memory Text
+          <textarea id="memoryEditTextInput" rows="5" required></textarea>
+        </label>
+      </div>
       <div class="modal-actions" style="margin-top:20px">
         <button id="memoryEditSaveBtn" type="button" class="primary" style="width:100%">SAVE CHANGES</button>
       </div>
@@ -461,16 +473,18 @@
       <div class="modal-head" style="justify-content: center; border-bottom: none; padding-bottom: 0;">
         <h2 style="font-size: 24px; letter-spacing: 2px;">LOA</h2>
       </div>
-      <p style="color: var(--cyan); font-size: 10px; font-weight: bold; letter-spacing: 1px; margin-bottom: 20px;">LOCAL AUTONOMOUS AGENT</p>
-      
-      <div style="background: #050c11; border: 1px solid var(--line); padding: 15px; border-radius: 4px; margin-bottom: 20px;">
-        <p style="font-size: 12px; margin-bottom: 5px;">Version</p>
-        <code id="aboutVersion" style="color: var(--good); font-size: 14px;">Loading...</code>
-      </div>
+      <div class="modal-body" style="overflow-y: auto; flex: 1; padding-right: 4px;">
+        <p style="color: var(--cyan); font-size: 10px; font-weight: bold; letter-spacing: 1px; margin-bottom: 20px;">LOCAL AUTONOMOUS AGENT</p>
+        
+        <div style="background: #050c11; border: 1px solid var(--line); padding: 15px; border-radius: 4px; margin-bottom: 20px;">
+          <p style="font-size: 12px; margin-bottom: 5px;">Version</p>
+          <code id="aboutVersion" style="color: var(--good); font-size: 14px;">Loading...</code>
+        </div>
 
-      <p style="font-size: 12px; color: var(--muted); margin-bottom: 20px; line-height: 1.5;">
-        Designed to solve macro-level architectural work through dynamic thought composition.
-      </p>
+        <p style="font-size: 12px; color: var(--muted); margin-bottom: 20px; line-height: 1.5;">
+          Designed to solve macro-level architectural work through dynamic thought composition.
+        </p>
+      </div>
 
       <div class="modal-actions" style="justify-content: center;">
         <button type="button" id="closeAboutBtn" class="primary" style="width: 100%;">CLOSE</button>
