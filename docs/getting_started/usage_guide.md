@@ -1,143 +1,242 @@
 # Loa Usage Guide
 
-Welcome to Loa. This guide will walk you through the day-to-day workflow of operating the agent, interacting with its UI, and writing effective prompts to ensure reliable execution.
+This guide covers first-time setup, the current Web UI, execution modes, steering, pause/resume, and the operational differences between local/self-hosted and metered inference.
 
 ## First-Time Setup
 
-Before you can start chatting, you'll encounter two setup wizards to configure your environment.
+Loa has two setup stages: global model/runtime configuration and project-specific setup.
 
-### 1. The Initial Setup Wizard
-*(Configure your LLM endpoints and test connections)*
-For the beginning it's recommended to just choose a single model for all inferences and one for embeddings. Make sure to test the configuration before finishing the initial setup. Regarding the "Total Context Budget" you should provide an amount that fits within the buffer of your inference API service, and optimally is supported by the model you plan to choose for inference.
+### 1. Initial Setup Wizard
+
+The initial setup wizard configures:
+
+- API base URL and optional API key,
+- model roles for Crawling, Conversation, Planning, and Executing,
+- embedding engine (`local` or external OpenAI-compatible API),
+- embedding model/path,
+- total context budget.
 
 ![Initial Setup Wizard](initial_setup.png)
 
-This wizard appears the very first time you launch Loa. Here you define your global API endpoint (e.g., `http://127.0.0.1:11434` for Ollama) and select the models Loa will use.
-- **Local CPU Embeddings:** You can optionally select a `Local Embedding Model Path` from the dropdown if you downloaded a model during the `setup.sh` script. This runs semantic searches natively on your CPU, which is highly recommended for speed and offline privacy. Your selected path will automatically be saved using the `~/` prefix (e.g., `~/.loa/embedding-models/mxbai.gguf`) to ensure it remains perfectly portable across different users, machines, and the sandbox.
-- **Tip:** You can click the **TEST CONFIGURATION** button at the bottom to ensure Loa can successfully reach your models. This is especially important to verify that you have selected a valid, dedicated embedding model for the Embedding Model slot since embedding is used for handling memories and internal searches.
+For a first run, using one chat model for all model roles is the simplest configuration. The model endpoint must provide the OpenAI-compatible endpoints Loa uses (`/v1/models` and `/v1/chat/completions`). If external embeddings are selected, `/v1/embeddings` must also be available.
 
-### Sandbox & Host State
-If you run Loa via `loa-sandbox`, the container seamlessly shares directories with your host to preserve state:
-- **Global Settings:** Your host's `~/.config/loa` is mounted **Read-Only** into the sandbox. The sandbox will load your global configuration, but it is explicitly prevented from overwriting your host's global settings.
-- **Models & Tools:** Your host's `~/.loa` is mounted so the sandbox can directly access the `ast-grep` binary and any local embedding models you downloaded during setup.
-- **Project Configuration:** The project-level `.loa/config.json` inside your workspace is fully Read/Write for both host and sandbox execution.
+Use **TEST CONFIGURATION** before completing setup.
 
-### 2. The Project Setup Wizard
-*(Configure project-specific boundaries)*
+### Local CPU Embeddings
+
+If you downloaded a GGUF embedding model through `setup.sh`, select the local embedding engine and choose the model path. Local embedding paths are stored using a `~/`-relative form where possible so the same global configuration can also resolve inside `loa-sandbox`.
+
+### Context Budget
+
+`Total Context Budget` is the maximum context size Loa uses when composing an **individual model request**. It is not a total token or request budget for a task.
+
+Set it to a value supported by both your inference server and the model you are running. Loa reserves space for model output and applies its own safety buffer when composing prompts.
+
+> [!IMPORTANT]
+> **Metered cloud inference is not the intended deployment model.**
+>
+> Project crawling itself can invoke the model repeatedly: unindexed source chunks receive a Narrative Frame and keyword extraction. Fast Mode is lighter than Planned Mode but still uses Loa's state/retrieval/memory machinery. Planned Mode can generate a large number of independent model calls for planning, execution, evaluation, recovery, context maintenance, and verification.
+>
+> A cloud OpenAI-compatible endpoint can work technically, but API credits and rate limits can be consumed very quickly.
+
+### Sandbox and Host State
+
+When Loa runs through `loa-sandbox`, the container receives several host mounts:
+
+- the current project at `/workspace` read/write,
+- host `~/.loa` read-only,
+- host `~/.config/loa` read-only when that directory exists.
+
+If the host global-config directory does not exist, the launcher provisions sandbox-local writable global config storage.
+
+Project configuration is stored at `.loa.json` in the project root. Project runtime state is stored under `.loa/`.
+
+See [Sandbox and Security](../core_concepts/sandbox_and_security.md) for the complete boundary.
+
+### 2. Project Setup Wizard
+
+The project setup wizard appears when Loa initializes a project without an existing session/project setup.
 
 ![Project Setup Wizard](project_setup.png)
 
-This wizard appears whenever Loa detects it is running in a new directory. 
-- **Project Purpose:** Briefly explain what this repository is about. This gives the agent immediate baseline context.
-- **.loaignore:** Define which directories the crawler should ignore during project indexing (e.g., `node_modules`, `vendor`, `.git`). This prevents massive dependency folders from polluting the search index, though the agent can still manually read specific files inside them if necessary. Loa provides sensible defaults automatically. Choose those carefully because once started loa will at least for once index the whole project and create AST information alongside narrative frames for each file which it later in process can use for cheap lookups.
+The current wizard includes:
 
----
+- **Initial Session Title**
+- **Project Purpose (Global Concept Memory)**
+- **`.loaignore`**
+- **START BOOT SCAN**
 
-## Hardware & Performance Settings
+`.loaignore` controls which paths are excluded from the crawler/watcher/indexing path. Choose it before the first boot scan for large repositories, because the crawler can generate model calls for unindexed source chunks.
 
-Depending on your local hardware (specifically VRAM), you may want to tweak Loa's memory physics for optimal performance. You can access these via the **Settings** modal in the UI. To properly configure this you need to know the configured amount of context buffer provided by your inference API and optimally the supported context buffer size of the inference model of your choice.
+The project purpose is stored as project knowledge so the agent has a stable high-level description of the repository.
+
+## Settings and Context Sizing
+
+The Web UI Settings modal contains five tabs:
+
+1. Model & Limits
+2. File Indexing & Tools
+3. Memory Physics
+4. Context Synthesis
+5. Tools & Permissions
 
 ![Settings Dialog - Context Synthesis](settings_context.png)
 
-- **Low-End Setup (e.g., 16-24GB VRAM):** Keep the **Total Context Budget** around `40000` to `60000` tokens. In the *Context Synthesis* tab, you might want to keep the **Max Context History Steps** low (e.g., 4).
-- **Medium Setup (e.g., ~32GB VRAM):** Keep the **Total Context Budget** around `100000` to `200000` tokens. In the *Context Synthesis* tab, you might want to keep the **Max Context History Steps** medium (e.g., 6-8).
-- **High-End Setup (e.g., 64GB+ VRAM):** If you are running massive models with huge context windows, you can safely increase the **Total Context Budget** to `300000`+  tokens. You can also increase the **Max Context History Steps** (e.g., ~10) allowing the agent to remember much deeper conversational history during complex executions.
+There is no universal context-budget value that can be derived from VRAM alone. The usable limit depends on the model, quantization/runtime, inference-server configuration, and the model's supported context length.
 
-At the end of the day, the optimal values are completely dependent on your environment and use case.
+For the exact fields and current semantics, see [Settings Reference Guide](settings_reference.md).
 
-> **⚙️ Advanced Configuration:** Loa features an extensive settings panel (accessible via the top navigation bar) containing 5 distinct tabs to fine-tune its memory physics, indexing behavior, and model parameters. For a deep-dive into how to optimize every single setting for your specific hardware and project size, please read the [Settings Reference Guide](settings_reference.md).
+## Web UI Overview
 
----
+### 1. Chat
 
-## The Web UI Overview
+The Chat area is the user-facing task interface.
 
-### 1. Chat Tab (The Command Center)
-The Chat tab is where you interact directly with the agent.
-- **Goal Submission:** Type your request here. The agent will analyze your intent and decide whether to reply conversationally or generate an execution plan to modify the codebase.
-- **Interventions:** If the agent is currently executing a long-running plan and goes off track, you can type a new message here to intervene. The agent will pause, assess your new guidance, and optionally update its plan.
+You can:
 
-### 2. Inspect Pane (The Right Sidebar)
-The Inspect Pane provides a deep look into the agent's internal state. It is divided into three primary top-level tabs: **SESSION**, **MEMORY**, and **OUTPUTS**, each containing specialized subtabs.
+- submit conversational or coding requests,
+- select Auto, Fast, or Planned execution behavior,
+- approve modifying Planned tasks,
+- send steering/intervention messages while a task is running,
+- attach uploaded files/artifacts.
+
+### 2. Inspect Pane
+
+The right-side inspect pane is split into three top-level groups.
 
 #### SESSION
-The Session tab tracks the active execution of the agent.
-- **PLAN:** If your prompt requires modifying the codebase, Loa generates a Directed Acyclic Graph (DAG) plan here. You can monitor the step-by-step progress as tasks execute, succeed, or fail. A dropdown allows you to review historical plans in the same session.
-- **GRAPH:** A visual representation of how structured context and outputs flow between tasks. Because Loa executes steps 100% sequentially, this graph shows exactly which outputs from previous steps are being explicitly routed as structured information into the current step, avoiding the common pitfall of flooding the agent with the entire execution history.
-- **UPLOADS:** A session-scoped repository for external files. You can upload, delete, and download files here. See *Session Attachments* below for more details.
+
+- **PLAN:** current/historical task plan state.
+- **GRAPH:** DAG/dependency view. For Planned tasks, dependencies also affect which completed step results become direct context prerequisites.
+- **UPLOADS:** session-scoped uploaded files.
 
 #### MEMORY
-The Memory tab provides insight into what the agent "knows" and retains.
-- **WORKING MEMORY:** Displays the immediate, high-priority context the agent holds for the current task (e.g., discovered architectural decisions, rules).
-- **SESSION MEMORY:** Holds narrative memory entries generated during the ongoing conversation. The agent can actively search and query these entries to selectively pull historical context back into its working memory when needed. **Note on Fast Mode:** Fast Mode tasks bypass complex DAG planning, but they *do not* bypass memory consolidation! At the end of every Fast Mode task, Loa extracts rich facts and decisions to store here, ensuring deep conversational continuity.
-- **PROJECT MEMORY:** Insights and long-term knowledge the agent has indexed about the entire repository. This index is kept perfectly synchronized with your actual filesystem via **JIT (Just-In-Time) Reconciliation**. If you manually edit, rename, or delete files in your IDE while Loa is running, Loa's File System Watcher detects it instantly, drops the stale memories, and re-indexes the new changes on the fly.
+
+- **WORKING MEMORY:** active task facts, decisions, constraints, open issues, and related task context.
+- **SESSION MEMORY:** session-scoped retrievable memories/task summaries.
+- **PROJECT MEMORY:** project-level persistent memories, including structural source memories produced by the crawler.
 
 #### OUTPUTS
-The Outputs tab provides observability into the agent's actions and artifacts.
-- **ARTIFACTS:** Markdown documents, code snippets, or structured reports generated by the agent during execution.
-- **LAST CONTEXT:** The exact snapshot of context that was fed to the LLM during its most recent inference step.
-- **EXECUTION LOG:** A raw, real-time feed of exactly what the LLM is thinking, the tools it is calling, and the raw terminal outputs it is receiving.
 
-### 3. Session Attachments & File Handling
-Loa provides a robust system for bringing external files into your conversation context without polluting your project workspace.
-- **The Uploads Tab:** Found under the SESSION tab, this is a session-scoped repository for external files. Files uploaded here belong exclusively to your current conversation session.
-- **READ_ONLY Toggle:** Clicking the READ_ONLY checkbox guarantees the agent cannot permanently alter the file (its changes will be automatically reverted). Leaving it unchecked allows the agent's edits to be saved permanently and retrieved later.
-- **Session Attachments (The Paperclip):** In the Chat tab, you can click the paperclip icon (or the dropdown indicator in the top-left) to explicitly attach uploaded files to the current conversation step. Detaching a file removes it from the agent's active view without deleting the master upload itself.
+- **ARTIFACTS:** task/step artifacts written by the agent.
+- **LAST CONTEXT:** the last context payload assembled for a model inference.
+- **EXECUTION LOG:** recorded primitive/tool activity, including model primitive inputs/outputs and tool results.
 
----
+The Execution Log is an implementation/audit log. It should not be interpreted as access to an unrecorded internal chain of thought beyond what the Loa primitives themselves explicitly emit and persist.
+
+## Session Uploads and Attachments
+
+The **UPLOADS** tab stores external session files under Loa's project-local runtime area.
+
+A manually uploaded file can be attached to the current conversation. Read-only uploads are restored from their master copy if the working attachment is modified; writable uploads synchronize working-copy changes back to the master upload.
+
+Artifacts can also be attached as read-only context.
+
+These files are exposed to the model through virtual/working paths when attached; detaching them removes them from active prompt context without deleting the stored upload.
+
+See [Sandbox and Security](../core_concepts/sandbox_and_security.md) for the trust boundary.
+
+## Execution Modes
+
+### Auto Mode
+
+Auto Mode runs Loa's intent/ambiguity path and chooses the execution route based on the request.
+
+If you already know the request should be a quick local task or a full planned task, selecting Fast or Planned explicitly avoids relying on automatic mode selection.
+
+### Fast Mode
+
+Fast Mode skips formal acceptance-criteria generation and the initial multi-step DAG planning/approval flow. Internally, the current engine creates one synthetic `Execute Fast Track` step and executes it through Loa's normal tool/retrieval/state machinery.
+
+Use Fast Mode for work where a full DAG is unnecessary, such as localized inspection, small edits, or direct commands.
+
+Fast Mode is **not** equivalent to one model call. It can still use retrieval, tools, multiple execution decisions, and task-memory finalization.
+
+### Planned Mode
+
+Planned Mode is intended for larger work where explicit acceptance criteria and a mutable multi-step plan are useful.
+
+The engine:
+
+1. derives acceptance criteria,
+2. maps criteria dependencies,
+3. generates/evaluates a DAG plan,
+4. waits for approval if the plan is modifying,
+5. executes/evaluates the steps,
+6. can repair/replan when execution invalidates the current approach,
+7. runs a final acceptance audit before synthesis.
 
 ## Prompting
 
-Because Loa operates as a strict state-machine, it thrives on explicit, clear objectives rather than vague ideas.
+Loa performs best when the user supplies the constraints that actually define success.
 
-### The "Intent" Phase (Fast Mode vs. Planned Mode)
-When you submit a prompt while Loa is in **Auto Mode**, it dynamically routes your request into one of two primary workflows. *(Note: Because Auto Mode currently leans heavily toward generating Planned tasks, it is highly recommended to manually set your mode to **Fast** for normal conversational interactions and quick tasks.)*
-- **Fast Mode (Fast Track):** For simple questions, rapid file edits, localized debugging, or quick commands (e.g., "Fix the typo in index.html", "What does function X do?", "Run tests"). Fast Mode skips generating a complex DAG plan, allowing Loa to execute actions immediately in a rapid, lightweight loop. At the end of the loop, Fast Mode seamlessly consolidates its findings and actions into **session memory** so deep conversational continuity is preserved between quick tasks.
-- **Planned Mode:** For complex refactoring, multi-file feature additions, or broad investigatory tasks (e.g., "Add a password reset flow across the auth service, DB, and UI"). Loa drafts a full Directed Acyclic Graph (DAG) plan with concrete steps, dependencies, and verification criteria. 
-  - **Investigatory plans** execute automatically.
-  - **Modifying plans** require your manual approval before execution begins.
+For modifying work, useful prompt information includes:
 
-### Best Practices for Modifying Prompts
-1. **Be specific about the "What":** State the exact feature or bug fix.
-2. **Provide Acceptance Criteria:** If possible, tell the agent exactly how you expect to verify the task is complete (e.g., "The task is done when `curl /reset` returns a 200 OK").
-3. **Mention specific files (Optional):** If you know where the issue is, mentioning it (e.g., "Check `internal/auth/reset.go`") saves the agent time during the discovery phase.
+- the intended outcome,
+- architectural constraints/invariants,
+- acceptance criteria,
+- relevant files/components when known,
+- requirements that must not change.
 
-### Steering During Execution
-While Loa is actively executing a complex, long-running plan, you are not locked out! You can send new prompts (steering messages) at any time in the Chat tab.
-When Loa receives a steering message during execution, it will:
-1. Pause its current background work.
-2. Evaluate your new message.
-3. Update its current actions or entirely rewrite its remaining DAG plan to accommodate your new instructions.
-4. Resume execution seamlessly.
-This allows you to dynamically guide the agent if you realize a requirement has changed or if you spot a better architectural approach while watching it work.
+You do not need to pre-design every implementation step; the Planned path exists to investigate and construct that plan. But constraints that are important to you should be stated explicitly rather than left to product-taste inference.
 
-### Dynamic Evaluation & Blind Actions
-By default, Loa evaluates every single action it takes against its overall objective before proceeding. However, you can configure the **Evaluation Mode** (in Settings) to optimize for speed:
-- **Strict:** Every step is thoroughly evaluated.
-- **Dynamic:** Loa can execute tightly coupled changes "blindly" in rapid succession.
+## Steering During Execution
 
-When using Dynamic mode, the **Blind Action Threshold** determines how many fast actions Loa can take before it is forced to do a deep evaluation. During these blind actions, a background LLM supervisor watches the execution stream. If the supervisor detects that the agent is staying on track, it can hit the "snooze button" to allow the agent to continue working quickly without a heavy evaluation. These background supervisor decisions ("continue" vs. "evaluate") and their reasoning are fully observable in the Execution Log, ensuring you always know why Loa is proceeding or pausing.
+You can send a message while a task is running.
 
----
+The message is queued as an intervention. The intervention primitive can update task facts, decisions, constraints, or open issues.
 
-## Managing Paused States & Interventions
+For Planned Mode, the intervention can trigger replanning of the remaining DAG. In Fast Mode there is no multi-step DAG remainder to structurally replan, so the guidance is incorporated into the continuing Fast execution.
 
-Loa features a hard-limit circuit breaker called the **Max Execution Loops** (configurable in Settings). This prevents the agent from infinitely looping if it gets stuck trying to fix a persistent bug. 
+## Dynamic Evaluation
 
-Additionally, because Loa persists its state entirely to your local disk, **you can manually pause execution at any time**. 
+The current settings UI exposes two evaluation modes:
 
-### When is pausing useful?
-- **Error Recovery:** If the agent hits a loop limit or encounters a catastrophic error, it will automatically pause. The UI will prompt you for human intervention.
-- **Resource Management:** If you are running a massive refactoring task and suddenly need your GPU resources for something else, you can manually pause Loa.
-- **Session Continuity:** You can pause a long-running plan, completely shut down your computer for the night, and resume the exact same plan the next day right where it left off.
+- **Strict** (stored internally as `Immediate`)
+- **Dynamic**
 
-### How to recover from an Error Pause
-1. **Review the Execution Log:** Look at the most recent steps to understand *why* the agent got stuck (e.g., a missing dependency, a failing unit test it can't figure out).
-2. **Update Settings (If necessary):** While PAUSED, you can freely update the configuration via the Settings modal. If the context window became too small or a request timeout was too low, simply adjust the values and click Save. The new configurations will apply immediately when execution resumes.
-3. **Provide Guidance:** Type a message in the Chat tab explaining the solution (e.g., "The test is failing because you forgot to mock the database connection in `setup_test.go`").
-4. **Resume Execution:** The agent will process your guidance, optionally update its remaining plan, and resume execution with the newly applied settings.
+Strict evaluation takes the immediate evaluation path for eligible mutating actions.
 
-## Sandbox Volume Management
-If you are running `loa-sandbox` (which is highly recommended), remember that the agent operates inside an isolated Docker container.
-- It **only** has access to the directory where you ran the `loa-sandbox` command.
-- It **cannot** access `/etc/`, `~/.ssh/`, or any files outside your project root on your host machine.
-- If you need the agent to utilize a specific host binary that isn't installed in the Debian container, you will need to map it manually or install it during the task.
+Dynamic mode allows eligible mutating actions to continue without a full immediate evaluation when the model requests that. The engine counts these blind actions. When `Blind Action Threshold` is reached, `AssessBlindExecution` is invoked and decides whether a full evaluation should occur or execution can continue.
+
+This is a threshold-triggered decision point, not a continuously running background supervisor.
+
+## Pause, Resume, and Recovery
+
+Loa persists session/task state under `.loa/`.
+
+### Manual Pause
+
+Pausing cancels the active run and records the task as paused while keeping the persisted state needed for inspection/resume.
+
+### Error Pause
+
+If execution cannot continue, the engine can pause with an error and return a currently-running step to a pending state for later recovery.
+
+### Restart
+
+If Loa is stopped while a task is persisted as `running`, loading that session converts the task to `paused`. It can then be inspected and resumed.
+
+This makes it possible to stop the process/computer and continue a long-running task later, assuming the underlying project/environment still matches what the task expects.
+
+## Host vs. Sandbox Execution
+
+### Host
+
+```bash
+loa .
+```
+
+The default host bind address is `127.0.0.1:7171`.
+
+`execute_process` and `execute_shell` run with your host user privileges in this mode.
+
+### Sandbox
+
+```bash
+loa-sandbox
+```
+
+The sandbox exposes the UI on port `8104` and mounts the current project at `/workspace` read/write.
+
+File tools are project-root constrained in both modes. Shell/process tools are not restricted by that file-tool boundary; their effective filesystem access is determined by the environment Loa is running in.

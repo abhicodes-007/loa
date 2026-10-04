@@ -1,67 +1,145 @@
 # Settings Reference Guide
 
-Loa provides an extensive settings panel (accessible via the top navigation bar) to fine-tune its memory physics, indexing behavior, and model parameters. 
+The Web UI Settings modal currently contains five tabs. This guide describes the controls that exist in the current `main` UI and how they map to the runtime configuration.
 
-This guide breaks down each of the 5 configuration tabs to help you optimize Loa for your specific hardware and project size.
+Project overrides are stored in `.loa.json`. Global configuration is stored under the OS user-config directory in `loa/config.json` (for a typical Linux installation, `~/.config/loa/config.json`).
 
 ## 1. Model & Limits
-*(Configure which models perform which roles, and set basic safety guardrails)*
 
 ![Model & Limits Tab](settings_models.png)
 
-This tab defines the foundational connection to your AI provider (e.g., Ollama).
-- **API Base URL & Key:** The endpoint where your LLM is hosted.
-- **Role-Specific Models:** Loa can route different types of cognitive tasks to different models. For example, you might want a massive, slow model for **Planning**, but a smaller, lightning-fast model for **Crawling** and **Executing**. 
-  - *Note:* The "Conversation" model role is specifically used as the **Analysis/Background Model**. It powers the lightweight background primitives (e.g., assessing blind execution limits, determining intents), making it crucial for fast background decision-making.
-- **Use one model for all inferences:** If checked, this forces Loa to use your primary model for all tasks, ignoring the individual dropdowns.
-- **Embedding Engine:** Defines how text is vectorized for semantic searches. You can choose an external `api` or a `local` CPU engine.
-- **Embedding Model:** Defines the model used if the engine is set to `api`. **This must be a dedicated embedding model (e.g., `nomic-embed-text`)!**
-- **Local Embedding Model Path:** Defines the GGUF file used if the engine is set to `local`. If you downloaded a model during `setup.sh`, it will appear here. The path is intentionally saved using the `~/` prefix (e.g., `~/.loa/embedding-models/mxbai.gguf`) so it remains perfectly portable when shared with team members or when running inside the `loa-sandbox`.
-- **Execution Limits & Evaluation:**
-  - **Evaluation Mode:** Choose between *Strict* (evaluates every step) and *Dynamic* (allows the agent to execute tightly coupled actions "blindly" for speed).
-  - **Blind Action Threshold:** When in Dynamic mode, this dictates the maximum number of consecutive steps Loa can execute blindly before the background supervisor LLM forces a deep evaluation.
-  - **Timeouts & Loops:** Set hard circuit-breakers to prevent the agent from getting stuck in an infinite loop or hanging indefinitely if your API server drops a connection.
+### Model Endpoint
+
+- **API Base URL**: base address of the OpenAI-compatible model server.
+- **API Key**: optional Bearer token.
+- **Use one model for all inferences**: UI convenience for assigning one selected model across Loa's model roles.
+- **Crawling model**: used by crawler primitives such as Narrative Frame/keyword generation.
+- **Conversation model**: used by lightweight/background/control primitives where the engine selects the conversation role.
+- **Planning model**: used by planning-related primitives.
+- **Executing model**: used by execution/tool-decision primitives and some analysis helpers.
+
+Loa's current client expects `/v1/models` and `/v1/chat/completions` from the configured model server.
+
+### Embeddings
+
+- **Embedding Engine: local**: use the GGUF local CPU embedding backend compiled into the normal release/localembed build.
+- **Embedding Engine: openapi**: call the configured OpenAI-compatible `/v1/embeddings` endpoint.
+- **Embedding Model**: external embedding model name when `openapi` is selected.
+- **Local Embedding Model Path**: GGUF file used by the local embedding engine.
+
+### Execution/Evaluation Limits
+
+- **JSON Repair Attempts**: maximum number of model repair attempts after strict structured-output parsing/validation fails.
+- **Evaluation Mode**:
+  - UI **Strict** -> stored as `Immediate`.
+  - UI **Dynamic** -> stored as `Dynamic`.
+- **Blind Action Threshold**: in Dynamic mode, the count at which the engine invokes `AssessBlindExecution` as a soft decision point. It is not a continuously running supervisor.
+- **Max Execution Loops**: bounds internal execution loops, including per-step execution/recovery paths. It is not one global counter for all operations across a full task.
+- **Max Plan Depth**: used as a bound across several plan/replan/decomposition/final-audit paths; it is broader than only visual DAG depth.
+
+### Timeouts
+
+- **Model Timeout Seconds**
+- **Command Timeout Seconds**
+- **LLM Polling Timeout Seconds**
+- **Server Read Header Timeout Seconds**
+
+See the field-level [Settings Reference](../reference/settings.md) for defaults.
+
+> [!IMPORTANT]
+> None of these settings limits the **total number of model requests** made by a task. Loa is intentionally inference-heavy. A metered cloud provider can consume credits/rate limits quickly even when every individual request stays inside `context_budget`.
 
 ## 2. File Indexing & Tools
-*(Control how Loa reads and crawls your codebase)*
 
 ![File Indexing Tab](settings_indexing.png)
 
-This tab controls the AST (Abstract Syntax Tree) engine and file crawling behaviors.
-- **Use AST Search / AST Tool:** Toggle whether Loa is allowed to parse your code using Tree-sitter for structural searches (e.g., "find all functions that implement this interface").
-- **Max File Size:** Files larger than this (in bytes) will be completely ignored during codebase indexing to prevent blowing up the search database.
-- **Top-K Results:** When Loa searches the codebase, this determines the maximum number of file snippets returned in a single query. Keep this lower (e.g., 5-10) for smaller context windows.
+Current controls are:
+
+- **FS Watcher Debounce (ms)**: coalesces filesystem events before files are marked stale.
+- **Max Tool Output Bytes**: maximum tool result size retained by the Tool Manager before it truncates the result and marks it `Truncated`.
+- **Crawler Small File Threshold**: line threshold below which a source file can be processed as one crawler chunk instead of symbol-oriented chunking.
+- **Crawler Max Chunk Lines**: target upper bound used when the crawler groups source/index blocks into Narrative Frame chunks.
+- **`.loaignore`**: project-specific paths ignored by indexing/watcher logic.
+
+The current tab does **not** expose a `Use AST Search` toggle, generic `Max File Size`, or indexing `Top-K Results` control.
 
 ## 3. Memory Physics
-*(Tune the context compression algorithms)*
 
 ![Memory Physics Tab](settings_physics.png)
 
-Because context windows are finite, Loa uses dynamic "Memory Physics" to forget old information and prioritize new information.
-- **Max Context History Steps:** How far back in the DAG plan execution history should the agent remember? If set to 5, the agent will only see the exact terminal outputs and thought processes of the last 5 steps.
-- **Target Compression Ratio:** When memories become too old, Loa uses an LLM to compress them into dense structural facts. This ratio (e.g., `0.3`) dictates how aggressively the text should be summarized.
+The current tab configures retrieval/scoring behavior. It does not contain a memory-compression ratio or a maximum DAG-history compression setting.
+
+- **Memory Top-K**: number of final retrieved memory results requested by search.
+- **Memory Candidate Pool**: initial candidate count before reranking/filtering.
+- **Project/LTS Decay Half-Life (Hours)**: age-based relevance-decay parameter used when scoring project memory.
+- **Project/LTS Max Weight**: maximum age/relevance weight contribution for project memory.
+- **Session Decay Half-Life (Hours)**: age-based relevance-decay parameter used for the session store.
+- **Session Max Weight**: corresponding session-memory maximum weight.
+- **Memory Rerank Gates**: configured number of reranking/filter gates.
+- **Memory Pool Expansion Limit**: configured limit for expanding the candidate pool when retrieval needs more candidates.
+
+These half-life values affect retrieval scoring. They do not mean memories are automatically deleted or rewritten into compressed summaries when the half-life expires.
 
 ## 4. Context Synthesis
-*(Allocate your token budget)*
 
 ![Context Synthesis Tab](settings_context.png)
 
-This is the most important tab for **Hardware Optimization**. It dictates exactly how the raw token budget is divided before being sent to the LLM.
-- **Total Context Budget:** The absolute maximum number of tokens Loa will ever send to your inference model. If you have 32GB VRAM and a Qwen3.8 32B model, you might set this to `100000`.
-- **Budget Sliders:** 
-  - **Code Budget:** The percentage of the total budget reserved strictly for injecting file contents and AST structures.
-  - **Chat History:** The percentage reserved for your conversation with the agent.
-  - **Output Reserve:** The percentage reserved for the model's actual response. (Always leave at least 20-25% here so the model has room to write code!).
-- **Recent Task Breadcrumbs:** The number of short summaries injected into the prompt representing the outcomes of previous steps (e.g., "[Step 4] Success: Compiled successfully").
+### Total Context Budget
+
+`context_budget` is the maximum context size used when composing an individual inference. It is **not** a total task budget.
+
+For non-OpenAI-host URLs, the current client also sends this value to the chat endpoint as `options.num_ctx`.
+
+### Output Reserve
+
+`output_reserve` is reserved from the context budget for model output and is sent as the chat-completions `max_tokens` value.
+
+### Code Budget
+
+`code_budget` limits the amount of extra retrieved/tool material that the context builder can add. It is not a separate model context window.
+
+### Recent Messages
+
+`recent_messages` is the maximum tail of chat messages considered by the context builder. The newest messages are added first while space remains.
+
+### Recent Task Breadcrumbs
+
+`context_recent_breadcrumbs` controls how many recent completed-step summaries can be included as breadcrumbs.
+
+Direct DAG prerequisites are separate: completed results from the current step's direct `depends_on` dependencies are injected as direct prerequisite context.
+
+### Context Minimum Buffer
+
+The builder reserves 5% of `context_budget`, with `context_minimum_buffer` as the configured minimum safety buffer.
+
+### Context Safe Budget Floor
+
+`context_minimum_safe_budget` is used as a floor for the safe-budget calculation after the safety buffer is subtracted.
+
+### Code Budget Max Floor
+
+Despite the historical/UI-oriented name, `context_code_budget_max_floor` is currently used as a lower floor on the builder's computed `maxRunes` prompt allowance after subtracting the output reserve. It is not a standalone guaranteed code-injection allocation.
+
+### Max Prompt Tool Output Bytes
+
+`max_prompt_tool_output_bytes` exists in the current configuration and UI. During this documentation audit, no active consumer of this field was found in the current engine or Tool Manager path. The Tool Manager does enforce `max_stored_tool_output_bytes`; documentation should therefore not currently claim that `max_prompt_tool_output_bytes` automatically spills oversized output into an artifact.
+
+### Persistent Project Instructions
+
+`project_instructions` is inserted into the mandatory model context when non-empty.
 
 ## 5. Tools & Permissions
-*(Control what the agent is allowed to do)*
 
 ![Tools & Permissions Tab](settings_tools.png)
 
-This tab controls the permission model for when Loa wants to execute tools (like reading files, modifying code, or running terminal commands).
-- **ask every tool:** The agent will pause and request manual approval for *every single tool call* it attempts to make.
-- **ask selected tools:** You can explicitly choose which tools require manual approval using the checkbox grid (e.g., allow it to freely read files, but always ask before running a shell command or modifying a file).
-- **allow all:** The agent runs fully autonomously without asking for permission for any tool.
+Permission modes:
 
-When Loa pauses to ask for permission, a modal will appear showing exactly what tool it wants to use, the arguments it will pass, and its reasoning. From there, you can either approve the execution, or use the chat to send a steering message to adjust its plan!
+- **ask every tool** -> `ask_all`
+- **ask selected tools** -> `ask_selected`
+- **allow all** -> `allow_all`
+
+The tool grid determines which tools trigger approval in `ask_selected` mode.
+
+The default configuration is `ask_selected` with mutating/process/shell tools included in the approval set.
+
+Permissions are approval controls. They do not sandbox shell syntax. `execute_process` and `execute_shell` run with the filesystem/OS access of the environment where Loa is executing; only the registered file tools apply Loa's project-root path boundary.
