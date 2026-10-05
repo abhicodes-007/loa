@@ -46,23 +46,13 @@ func NewLocalEmbedder(modelPath string) (Embedder, error) {
 		return nil, fmt.Errorf("failed to load model: %w", err)
 	}
 
-	// A hardcoded 8192 buffer matches the model used during development, not
-	// every GGUF embedding model — smaller trained windows fail at init (#27).
-	// Prefer the context size from the model's own GGUF metadata; when that is
-	// unavailable, omit WithContext so llama-go fills it from metadata.
-	var ctx *llama.Context
-	var err2 error
-	if stats, sErr := model.Stats(); sErr == nil && resolveEmbedContextSize(stats.Metadata.ContextSize) > 0 {
-		ctx, err2 = model.NewContext(
-			llama.WithContext(stats.Metadata.ContextSize),
-			llama.WithEmbeddings(),
-		)
-	} else {
-		ctx, err2 = model.NewContext(llama.WithEmbeddings())
-	}
-	if err2 != nil {
+	// Omit WithContext: llama-go sizes the window from the model's native GGUF
+	// context length (llama_wrapper_get_model_context_length). A hardcoded 8192
+	// only matched the development model and failed init on smaller windows (#27).
+	ctx, err := model.NewContext(llama.WithEmbeddings())
+	if err != nil {
 		model.Close()
-		return nil, fmt.Errorf("failed to create context: %w", err2)
+		return nil, fmt.Errorf("failed to create context: %w", err)
 	}
 
 	return &LocalEmbedder{model: model, ctx: ctx}, nil

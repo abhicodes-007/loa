@@ -1,8 +1,8 @@
 package embedder
 
-// resolveEmbedContextSize returns the token budget for an embedding context.
-// fromModel is the GGUF metadata context size (0 when unknown); a non-zero
-// value wins so each model gets the window it was trained with.
+// resolveEmbedContextSize returns an explicit embedding context budget.
+// fromModel is an operator/model-supplied GGUF context size; 0 means "use the
+// model native window" (llama-go NewContext without WithContext).
 func resolveEmbedContextSize(fromModel int) int {
 	if fromModel > 0 {
 		return fromModel
